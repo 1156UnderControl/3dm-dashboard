@@ -48,6 +48,9 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     return (
       <div className="mx-auto max-w-sm p-6 text-center">
         <p className="mb-4">Sua conta não está liberada. Peça acesso a um admin da 1156.</p>
+        <p className="mb-4 text-xs text-slate-500">
+          Conectado como {state.user.email} · projeto {db.app?.options?.projectId ?? '?'}
+        </p>
         <button className="rounded border px-3 py-1" onClick={() => signOut(auth)}>Sair</button>
       </div>
     )
