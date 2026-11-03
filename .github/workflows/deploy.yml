@@ -2,6 +2,7 @@ name: Deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -33,22 +34,10 @@ jobs:
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
-      - name: Check the service account secret
+      - name: Check the service account's access
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        run: |
-          node -e '
-            const fail = (m) => { console.log("::error::FIREBASE_SERVICE_ACCOUNT " + m); process.exit(1) };
-            const raw = process.env.FIREBASE_SERVICE_ACCOUNT || "";
-            if (!raw.trim()) fail("is empty or missing.");
-            let sa;
-            try { sa = JSON.parse(raw) } catch { fail("is not valid JSON (" + raw.length + " characters). Paste the whole downloaded key file, from the first { to the last }.") }
-            if (sa.type !== "service_account") fail("is JSON but not a service account key (type is " + JSON.stringify(sa.type) + ").");
-            for (const k of ["project_id", "client_email", "private_key"]) if (!sa[k]) fail("is missing the " + k + " field.");
-            if (!sa.private_key.includes("BEGIN PRIVATE KEY")) fail("has a damaged private_key field.");
-            console.log("Service account: " + sa.client_email + " (project " + sa.project_id + ")");
-            if (sa.project_id !== process.env.FIREBASE_PROJECT_ID) fail("belongs to project " + sa.project_id + ", but FIREBASE_PROJECT_ID is a different project.");
-          '
+        run: node scripts/check-deploy-access.mjs
       - name: Deploy Firestore rules, indexes and Realtime Database rules
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
