@@ -5,9 +5,9 @@ import { useAppConfig } from '../../data/config'
 import { useSeason } from '../../data/hooks'
 import { createItem, createItems } from '../../data/items'
 import { useTeamKeys, resolveKey } from '../../ai/keys'
-import { dedupeByAiKey } from '../../ai/toItems'
+import { dedupeAiItems, normalizeKey } from '../../ai/toItems'
 import { AiError, aiErrorMessage, getProvider } from '../../ai/provider'
-import { askManual, slug, suggestForStep } from '../../ai/suggest'
+import { askManual, suggestForStep } from '../../ai/suggest'
 import { pdfCache } from '../../ai/pdfCache'
 import type { ItemKindDef, StepDef } from '../../threedm/template'
 import type { Item } from '../../threedm/types'
@@ -92,10 +92,10 @@ export function AskManual({ sid, by, readOnly, items = [] }: { sid: string; by: 
   async function save() {
     if (!result) return
     const n = {
-      stepId: '1.2', kind: 'question', origin: 'ai' as const, aiKey: `question:${slug(result.q)}`, citation: result.citacao,
+      stepId: '1.2', kind: 'question', origin: 'ai' as const, aiKey: `question:${normalizeKey('question', result.q, result.q)}`, citation: result.citacao,
       data: { pergunta: result.q, resposta: result.answer, citacao: result.citacao },
     }
-    if (dedupeByAiKey([n], items).length === 0) { setSaveMsg('Essa pergunta já foi salva'); return }
+    if (dedupeAiItems([n], items).length === 0) { setSaveMsg('Essa pergunta já foi salva'); return }
     try {
       await createItem(db, sid, by, n)
       setSaved(true); setSaveMsg('')

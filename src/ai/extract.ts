@@ -2,8 +2,9 @@ import { PDFDocument } from 'pdf-lib'
 import type { z } from 'zod'
 import type { AiContent, AiProvider } from './provider'
 import {
-  ARRAY_FIELDS, emptyExtraction, SEASON_SYSTEM_PROMPT, SectionA, SectionB, SectionC, SectionD, type SeasonExtraction,
+  ARRAY_FIELDS, emptyExtraction, type ArrayField, SEASON_SYSTEM_PROMPT, SectionA, SectionB, SectionC, SectionD, type SeasonExtraction,
 } from './seasonSchema'
+import { normalizeKey, primaryNorm, primaryText } from './toItems'
 
 /** Splits a PDF into chunks of at most `maxPages` pages (pdf-lib). */
 export async function splitPdf(bytes: Uint8Array, maxPages = 90): Promise<Uint8Array[]> {
@@ -20,10 +21,27 @@ export async function splitPdf(bytes: Uint8Array, maxPages = 90): Promise<Uint8A
   return chunks
 }
 
-const dedupeKey = (x: Record<string, unknown>): string =>
-  String(x.key ?? x.name ?? JSON.stringify(x)).trim().toLowerCase()
+/** Extraction array field → 3DM item kind (fields without a kind are deduped by name). */
+const FIELD_KIND: Partial<Record<ArrayField, string>> = {
+  scoring: 'scoring', rps: 'rp', rules: 'rule', questions: 'question', skills: 'skill', history: 'reference',
+  autos: 'auto', priorityDraft: 'priority', prototypeDraft: 'prototype', archetypeDraft: 'archetype',
+}
 
-/** Concatenates arrays deduping by key (first wins); gameName from the first non-empty part. */
+/** Raw extraction record → the item-data shape the primary-text helpers expect (rules carry the ID in `key`). */
+const asData = (kind: string, x: Record<string, unknown>) => (kind === 'rule' ? { ...x, regra: x.key } : x)
+
+/** Dedupe keys for a record: normalized key (same as the item aiKey) and normalized primary text. */
+function dedupeKeys(f: ArrayField, x: Record<string, unknown>): string[] {
+  const kind = FIELD_KIND[f]
+  if (!kind) return [String(x.key ?? x.name ?? JSON.stringify(x)).trim().toLowerCase()]
+  const data = asData(kind, x)
+  const keys = [`k:${normalizeKey(kind, String(x.key ?? ''), primaryText(kind, data))}`]
+  const p = primaryNorm(kind, data)
+  if (p) keys.push(`p:${p}`)
+  return keys
+}
+
+/** Concatenates arrays deduping by normalized key or primary text (first wins); gameName from the first non-empty part. */
 export function mergeExtractions(parts: SeasonExtraction[]): SeasonExtraction {
   const out = emptyExtraction()
   out.gameName = parts.find((p) => p.gameName?.trim())?.gameName ?? ''
@@ -32,9 +50,9 @@ export function mergeExtractions(parts: SeasonExtraction[]): SeasonExtraction {
     const merged: Record<string, unknown>[] = []
     for (const p of parts) {
       for (const x of (p[f] ?? []) as Record<string, unknown>[]) {
-        const k = dedupeKey(x)
-        if (seen.has(k)) continue
-        seen.add(k)
+        const ks = dedupeKeys(f, x)
+        if (ks.some((k) => seen.has(k))) continue
+        ks.forEach((k) => seen.add(k))
         merged.push(x)
       }
     }
@@ -50,11 +68,25 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(bin)
 }
 
-const SECTIONS: { name: string; schema: z.ZodType<Partial<SeasonExtraction>>; ask: string }[] = [
-  { name: 'season_overview', schema: SectionA, ask: 'Extraia: nome do jogo (gameName), peças de jogo (gamePieces), zonas do campo (zones), períodos da partida com duração em segundos (periods), ações que pontuam com período e pontos (scoring) e ranking points com requisito e se dependem da aliança (rps).' },
-  { name: 'season_rules', schema: SectionB, ask: 'Extraia: regras relevantes para estratégia e design (rules: key = ID da regra, texto resumido, por que importa, penalidade, categoria Gameplay/Robô/Bumper/Outros) e perguntas que a equipe deveria se fazer com resposta e citação do manual (questions).' },
-  { name: 'season_skills', schema: SectionC, ask: 'Extraia: habilidades possíveis do robô com categoria e KPIs (skills), rotinas autônomas possíveis com descrição e ações (autos) e, para cada ação do jogo, referências históricas de jogos anteriores da FRC (history).' },
+const SECTIONS: { name: string; schema: z.ZodType<Partial<SeasonExtraction>>; ask: string; kinds: string[] }[] = [
+  { name: 'season_overview', schema: SectionA, ask: 'Extraia: nome do jogo (gameName), peças de jogo (gamePieces), zonas do campo (zones), períodos da partida com duração em segundos (periods), ações que pontuam com período e pontos (scoring) e ranking points com requisito e se dependem da aliança (rps).', kinds: ['scoring', 'rp'] },
+  { name: 'season_rules', schema: SectionB, ask: 'Extraia: regras relevantes para estratégia e design (rules: key = ID da regra, texto resumido, por que importa, penalidade, categoria Gameplay/Robô/Bumper/Outros) e perguntas que a equipe deveria se fazer com resposta e citação do manual (questions).', kinds: ['rule', 'question'] },
+  { name: 'season_skills', schema: SectionC, ask: 'Extraia: habilidades possíveis do robô com categoria e KPIs (skills), rotinas autônomas possíveis com descrição e ações (autos) e, para cada ação do jogo, referências históricas de jogos anteriores da FRC (history).', kinds: ['skill', 'auto', 'reference'] },
 ]
+
+const DRAFT_KINDS = ['priority', 'prototype', 'archetype']
+
+/** Prompt suffix listing the existing keys of `kinds` (from aiKeys like `rule:G403`), or '' when none. */
+export function existingKeysText(existingKeys: string[], kinds: string[]): string {
+  const lines: string[] = []
+  for (const kind of kinds) {
+    const ks = [...new Set(existingKeys.filter((k) => k.startsWith(`${kind}:`)).map((k) => k.slice(kind.length + 1)).filter(Boolean))]
+    if (ks.length) lines.push(`${kind}: ${ks.join(', ')}`)
+  }
+  return lines.length
+    ? `\n\nKeys já existentes no 3DM — reutilize estas keys para os mesmos itens (não invente uma key nova para algo que já existe):\n${lines.join('\n')}`
+    : ''
+}
 
 const DRAFTS_ASK = 'Com base no modelo do jogo abaixo (extraído do manual), proponha rascunhos: lista de prioridades (priorityDraft, bucket em Precisamos/Queremos/Seria bom/Ignorar, com motivo), perguntas de prototipagem (prototypeDraft: subsistema, conceito, pergunta mensurável, fidelidade Análise 2D/Protótipo físico simples/Protótipo físico complexo) e arquétipos de robô (archetypeDraft: nome, habilidades, observações).'
 
@@ -63,7 +95,7 @@ const DRAFTS_ASK = 'Com base no modelo do jogo abaixo (extraído do manual), pro
  * over the merged result. Progress total = chunks × 3 + 1.
  */
 export async function extractSeason(
-  provider: AiProvider, pdf: Uint8Array, onProgress?: (done: number, total: number) => void,
+  provider: AiProvider, pdf: Uint8Array, onProgress?: (done: number, total: number) => void, existingKeys: string[] = [],
 ): Promise<SeasonExtraction> {
   const chunks = await splitPdf(pdf)
   const total = chunks.length * SECTIONS.length + 1
@@ -76,7 +108,7 @@ export async function extractSeason(
     for (const sec of SECTIONS) {
       const res = await provider.generate({
         system: SEASON_SYSTEM_PROMPT,
-        content: [pdfContent, { type: 'text', text: `Trecho ${i + 1} de ${chunks.length} do manual. ${sec.ask}` }],
+        content: [pdfContent, { type: 'text', text: `Trecho ${i + 1} de ${chunks.length} do manual. ${sec.ask}${existingKeysText(existingKeys, sec.kinds)}` }],
         schema: sec.schema, schemaName: sec.name, maxTokens: 16000,
       })
       Object.assign(part, res)
@@ -89,7 +121,7 @@ export async function extractSeason(
   void _p; void _t; void _a
   const drafts = await provider.generate({
     system: SEASON_SYSTEM_PROMPT,
-    content: [{ type: 'text', text: `${DRAFTS_ASK}\n\n${JSON.stringify(model)}` }],
+    content: [{ type: 'text', text: `${DRAFTS_ASK}${existingKeysText(existingKeys, DRAFT_KINDS)}\n\n${JSON.stringify(model)}` }],
     schema: SectionD, schemaName: 'season_drafts', maxTokens: 16000,
   })
   onProgress?.(++done, total)

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { AiContent, AiProvider } from './provider'
 import { SEASON_SYSTEM_PROMPT, type SeasonExtraction } from './seasonSchema'
 import { splitPdf } from './extract'
-import { dedupeByAiKey } from './toItems'
+import { dedupeAiItems, normalizeKey, primaryText } from './toItems'
 import type { ColumnDef, ItemKindDef, StepDef } from '../threedm/template'
 import type { Item, NewItem } from '../threedm/types'
 
@@ -28,14 +28,7 @@ export function suggestionSchema(kind: ItemKindDef) {
   return z.object({ items: z.array(z.object(shape)) })
 }
 
-export function slug(text: string): string {
-  const s = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
-  if (s) return s
-  let h = 5381
-  for (const ch of text.trim().toLowerCase()) h = ((h * 33) ^ ch.codePointAt(0)!) >>> 0
-  return `q${h.toString(36)}`
-}
+export { slug } from './slug'
 
 export interface SuggestInput {
   step: StepDef
@@ -61,9 +54,10 @@ export async function suggestForStep(provider: AiProvider, input: SuggestInput):
     system: SEASON_SYSTEM_PROMPT, content: [{ type: 'text', text }], schema, schemaName: `suggest_${kind.kind}`, maxTokens: 8000,
   })
   const fresh: NewItem[] = res.items.slice(0, MAX_SUGGESTIONS).map(({ key, ...data }) => ({
-    stepId: step.id, kind: kind.kind, data, origin: 'ai', aiKey: `${kind.kind}:${key}`,
+    stepId: step.id, kind: kind.kind, data, origin: 'ai',
+    aiKey: `${kind.kind}:${normalizeKey(kind.kind, String(key ?? ''), primaryText(kind.kind, data))}`,
   }))
-  return dedupeByAiKey(fresh, existing)
+  return dedupeAiItems(fresh, existing)
 }
 
 const ManualAnswer = z.object({ answer: z.string(), citacao: z.string(), encontrado: z.boolean() })

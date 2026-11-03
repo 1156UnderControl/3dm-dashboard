@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { PDFDocument } from 'pdf-lib'
 import { emptyExtraction, type SeasonExtraction } from './seasonSchema'
 import { extractSeason, mergeExtractions, splitPdf } from './extract'
-import { dedupeByAiKey, mergeExtraction } from './toItems'
+import { dedupeAiItems, mergeExtraction, normalizeKey } from './toItems'
 import type { AiProvider, AiRequest } from './provider'
 import type { Item } from '../threedm/types'
 
@@ -62,7 +62,7 @@ describe('mergeExtraction', () => {
     ]
     const out = mergeExtraction(ex({ rules: [rule('G403', 'a'), rule('G407', 'b'), rule('R103', 'c')] }), existing)
     expect(out.map((i) => i.aiKey)).toEqual(['rule:R103'])
-    expect(dedupeByAiKey([{ stepId: '1.2', kind: 'rule', data: {}, aiKey: 'rule:G403' }], existing)).toEqual([])
+    expect(dedupeAiItems([{ stepId: '1.2', kind: 'rule', data: {}, aiKey: 'rule:G403' }], existing)).toEqual([])
   })
 })
 
@@ -91,5 +91,63 @@ describe('extractSeason', () => {
     expect(res.gameName).toBe('REBUILT')
     expect(res.rules).toHaveLength(2)
     expect(res.priorityDraft).toHaveLength(1)
+  })
+})
+
+describe('key normalization and dedupe (re-running setup)', () => {
+  test('normalizeKey: rules uppercased, others slugged, empty key uses primary text', () => {
+    expect(normalizeKey('rule', ' g403 ', '')).toBe('G403')
+    expect(normalizeKey('skill', 'Coletar FUEL', 'x')).toBe('coletar-fuel')
+    expect(normalizeKey('skill', '  ', 'Coletar FUEL do chão')).toBe('coletar-fuel-do-chao')
+    expect(normalizeKey('auto', '', '')).not.toBe('')
+  })
+
+  test("'G403' vs 'g403' dedupes against existing items and across chunks", () => {
+    const out = mergeExtraction(ex({ rules: [rule('g403', 'a'), rule('R103', 'c')] }), [item({ aiKey: 'rule:G403', origin: 'ai' })])
+    expect(out.map((i) => i.aiKey)).toEqual(['rule:R103'])
+    const m = mergeExtractions([ex({ rules: [rule('G403', 'first')] }), ex({ rules: [rule(' g403', 'second')] })])
+    expect(m.rules).toHaveLength(1)
+  })
+
+  test('differing keys but same pergunta dedupe', () => {
+    const existing = [item({ kind: 'question', aiKey: 'question:outra-key', data: { pergunta: 'Posso tocar no HUB?' } })]
+    const out = mergeExtraction(ex({ questions: [{ key: 'tocar-hub', pergunta: '  posso tocar no HUB? ', resposta: 'r', citacao: 'G1' }] }), existing)
+    expect(out).toEqual([])
+    const m = mergeExtractions([
+      ex({ questions: [{ key: 'a', pergunta: 'P?', resposta: 'r', citacao: '' }] }),
+      ex({ questions: [{ key: 'b', pergunta: 'p?', resposta: 'r', citacao: '' }] }),
+    ])
+    expect(m.questions).toHaveLength(1)
+  })
+
+  test('same primary text dedupes within a batch and vs human items; empty primary never dedupes', () => {
+    const existing = [item({ stepId: '2', kind: 'priority', origin: 'human', data: { item: 'Coletar FUEL' } }),
+      item({ stepId: '2', kind: 'priority', origin: 'human', data: { item: '' } })]
+    const n = (key: string, it: string) => ({ stepId: '2', kind: 'priority', data: { item: it }, origin: 'ai' as const, aiKey: `priority:${key}` })
+    expect(dedupeAiItems([n('a', 'coletar fuel'), n('b', 'Escalar'), n('c', 'escalar'), n('d', ''), n('e', '')], existing)
+      .map((i) => i.aiKey)).toEqual(['priority:b', 'priority:d', 'priority:e'])
+  })
+
+  test('empty key gets the slug of the primary text', () => {
+    const out = mergeExtraction(ex({ skills: [{ key: '', categoria: 'c', habilidade: 'Coletar FUEL do chão', kpis: [] }] }), [])
+    expect(out[0].aiKey).toBe('skill:coletar-fuel-do-chao')
+  })
+
+  test('extractSeason passes existing keys per section into the prompts', async () => {
+    const calls: AiRequest<unknown>[] = []
+    const provider: AiProvider = {
+      generate: vi.fn(async <T,>(req: AiRequest<T>) => {
+        calls.push(req as AiRequest<unknown>)
+        const out: Record<string, unknown> = {}
+        for (const k of Object.keys((req.schema as unknown as { shape: Record<string, unknown> }).shape)) out[k] = k === 'gameName' ? '' : []
+        return out as T
+      }) as AiProvider['generate'],
+    }
+    await extractSeason(provider, await makePdf(2), undefined, ['rule:G403', 'skill:coletar-fuel', 'priority:fuel-rapido', 'scoring:fuel-hub'])
+    const text = (i: number) => JSON.stringify(calls[i].content.filter((c) => c.type === 'text'))
+    expect(text(0)).toContain('fuel-hub'); expect(text(0)).not.toContain('G403')
+    expect(text(1)).toContain('G403'); expect(text(1)).toContain('reutilize')
+    expect(text(2)).toContain('coletar-fuel'); expect(text(2)).not.toContain('G403')
+    expect(text(3)).toContain('fuel-rapido')
   })
 })

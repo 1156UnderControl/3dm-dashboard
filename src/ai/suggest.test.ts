@@ -83,6 +83,14 @@ describe('askManual', () => {
   })
 })
 
+describe('suggestForStep normalization', () => {
+  test('rule keys are uppercased and primary-text duplicates dropped', async () => {
+    const { provider } = fake([{ items: [row('g404'), { ...row('g405'), regra: 'G403' }] }])
+    const out = await suggestForStep(provider, { step, kind: ruleKind, seasonModel: model, existing: [item({ aiKey: 'rule:X' })] })
+    expect(out.map((i) => i.aiKey)).toEqual(['rule:G404'])
+  })
+})
+
 describe('slug', () => {
   test('non-latin question gives non-empty stable slug', async () => {
     const { slug } = await import('./suggest')

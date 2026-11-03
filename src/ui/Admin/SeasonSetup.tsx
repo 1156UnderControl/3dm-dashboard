@@ -9,7 +9,7 @@ import { useTeamKeys } from '../../ai/keys'
 import { AiError, aiErrorMessage, getProvider } from '../../ai/provider'
 import { extractSeason } from '../../ai/extract'
 import { pdfCache } from '../../ai/pdfCache'
-import { countByStep, dedupeByAiKey, mergeExtraction } from '../../ai/toItems'
+import { countByStep, dedupeAiItems, mergeExtraction } from '../../ai/toItems'
 import type { SeasonExtraction } from '../../ai/seasonSchema'
 import { createItems } from '../../data/items'
 import { itemsCol, seasonDoc } from '../../data/paths'
@@ -62,8 +62,9 @@ export default function SeasonSetup() {
     setError(''); setPhase('reading'); setProgress('Preparando o manual…')
     try {
       const provider = getProvider(config, team)
-      const ex = await extractSeason(provider, pdf, (d, t) => setProgress(progressText(d, t)))
       const existing = await loadExisting(sid)
+      const existingKeys = existing.map((i) => i.aiKey).filter((k): k is string => !!k)
+      const ex = await extractSeason(provider, pdf, (d, t) => setProgress(progressText(d, t)), existingKeys)
       setModel(ex)
       setNewItems(mergeExtraction(ex, existing))
       setPhase('preview')
@@ -85,7 +86,7 @@ export default function SeasonSetup() {
       // failure, or another admin's writes since the preview, never duplicate items.
       // JSON round-trip drops undefined fields, which Firestore rejects.
       await updateDoc(seasonDoc(db, sid), { model: JSON.parse(JSON.stringify(model)) })
-      const missing = dedupeByAiKey(newItems, await loadExisting(sid))
+      const missing = dedupeAiItems(newItems, await loadExisting(sid))
       const n = await createItems(db, sid, user.email, missing)
       setWritten(n); setPhase('done')
     } catch {
