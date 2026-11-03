@@ -63,3 +63,15 @@ export const useMembers = () => useQuery<Member>(() => membersCol(db), (d) => d.
 
 export const useGroups = (sid: string | undefined) =>
   useQuery<Group>(sid ? () => groupsCol(db, sid) : null, withId, [sid])
+
+/** One listener over active AI-origin items; counts per step (same semantics as stepSummary().aiPending). */
+export function useAiPendingCounts(sid: string | undefined): Record<string, number> {
+  const { data } = useQuery<Pick<Item, 'stepId'>>(
+    sid ? () => query(itemsCol(db, sid), where('origin', '==', 'ai'), where('state', '==', 'active')) : null,
+    (d) => ({ stepId: d.data().stepId as string }),
+    [sid],
+  )
+  const counts: Record<string, number> = {}
+  for (const i of data) counts[i.stepId] = (counts[i.stepId] ?? 0) + 1
+  return counts
+}
