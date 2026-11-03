@@ -23,9 +23,9 @@ const item = (patch: Partial<Item>): Item => ({
 })
 
 describe('splitPdf', () => {
-  test('splitPdf chunks at 90 pages', async () => {
-    const chunks = await splitPdf(await makePdf(200))
-    expect(await Promise.all(chunks.map(pageCount))).toEqual([90, 90, 20])
+  test('splitPdf chunks at 30 pages', async () => {
+    const chunks = await splitPdf(await makePdf(70))
+    expect(await Promise.all(chunks.map(pageCount))).toEqual([30, 30, 10])
   })
 })
 
@@ -83,8 +83,9 @@ describe('extractSeason', () => {
       }) as AiProvider['generate'],
     }
     const progress: [number, number][] = []
-    const res = await extractSeason(provider, await makePdf(100), (d, t) => progress.push([d, t]))
+    const res = await extractSeason(provider, await makePdf(40), (d, t) => progress.push([d, t]))
     expect(calls).toHaveLength(2 * 3 + 1)
+    expect(calls.slice(0, 6).every((c) => c.content[0].type === 'pdf' && c.content[0].cache === true)).toBe(true)
     expect(calls.slice(0, 6).every((c) => c.content[0].type === 'pdf')).toBe(true)
     expect(calls[6].content.every((c) => c.type === 'text')).toBe(true)
     expect(progress.at(-1)).toEqual([7, 7])
@@ -175,6 +176,32 @@ describe('extractSeason too-large retry', () => {
     expect(pages).toEqual([10, 5, 5, 10, 10])
     expect(res.scoring).toHaveLength(2)
     expect(res.gameName).toBe('G')
+  })
+
+  test('a chunk still rate-limited after retries is split recursively, not below 4 pages', async () => {
+    const pages: number[] = []
+    const provider: AiProvider = {
+      generate: vi.fn(async <T,>(req: AiRequest<T>) => {
+        const pdf = req.content.find((c) => c.type === 'pdf')
+        if (pdf && pdf.type === 'pdf') {
+          const n = await pageCount(Uint8Array.from(atob(pdf.base64), (c) => c.charCodeAt(0)))
+          pages.push(n)
+          if (n > 5 && req.schemaName === 'season_overview') throw new AiError('rate-limit', 'would exceed 30,000 input tokens per minute', 429)
+        }
+        const out: Record<string, unknown> = {}
+        for (const k of Object.keys((req.schema as unknown as { shape: Record<string, unknown> }).shape)) out[k] = k === 'gameName' ? 'G' : []
+        return out as T
+      }) as AiProvider['generate'],
+    }
+    await extractSeason(provider, await makePdf(20))
+    // overview: 20 → 10+10 → 5+5+5+5; then rules and skills on the whole 20-page chunk
+    expect(pages).toEqual([20, 10, 5, 5, 10, 5, 5, 20, 20])
+  })
+
+  test('rate limit on a tiny chunk is reported, not split further', async () => {
+    const provider: AiProvider = { generate: vi.fn(async () => { throw new AiError('rate-limit', 'x', 429) }) as AiProvider['generate'] }
+    await expect(extractSeason(provider, await makePdf(3))).rejects.toMatchObject({ code: 'rate-limit' })
+    expect(provider.generate).toHaveBeenCalledTimes(1)
   })
 
   test('non-size request errors are not retried', async () => {

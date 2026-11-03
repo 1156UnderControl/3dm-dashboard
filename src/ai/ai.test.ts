@@ -75,7 +75,17 @@ describe('anthropic', () => {
     expect(arg.output_config.format.schema.properties.n).toBeDefined()
     expect(arg.max_tokens).toBe(16000); expect(arg.model).toBe('claude-sonnet-5-5')
     expect(arg.messages[0].content[0]).toEqual({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'QUJD' } })
+    expect(arg.messages[0].content[0].cache_control).toBeUndefined()
     expect(arg.messages[0].content[1]).toEqual({ type: 'text', text: 'hi' })
+  })
+  test('cached pdf gets cache_control; 429 keeps the provider detail', async () => {
+    anthropicCreate.mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"n":1}' }] })
+    await getProvider(cfgA, {}).generate({ ...req, content: [{ type: 'pdf', base64: 'QUJD', cache: true }] })
+    expect(anthropicCreate.mock.calls[0][0].messages[0].content[0].cache_control).toEqual({ type: 'ephemeral' })
+    anthropicCreate.mockRejectedValueOnce(Object.assign(new Error('would exceed 30,000 input tokens per minute'), { status: 429 }))
+    const err = await getProvider(cfgA, {}).generate(req).catch((e) => e)
+    expect(err).toMatchObject({ code: 'rate-limit' })
+    expect(aiErrorText(err)).toBe('Limite da API atingido: would exceed 30,000 input tokens per minute')
   })
   test('maps 401 to invalid-key error', async () => {
     anthropicCreate.mockRejectedValue(Object.assign(new Error('x'), { status: 401 }))

@@ -7,8 +7,14 @@ import {
 } from './seasonSchema'
 import { normalizeKey, primaryNorm, primaryText } from './toItems'
 
+/**
+ * Pages per request. A page costs roughly 1.5-3k input tokens (text + page image), so 30 pages
+ * stays well under the per-minute input limits of new API accounts; 90 did not.
+ */
+export const PDF_CHUNK_PAGES = 30
+
 /** Splits a PDF into chunks of at most `maxPages` pages (pdf-lib). */
-export async function splitPdf(bytes: Uint8Array, maxPages = 90): Promise<Uint8Array[]> {
+export async function splitPdf(bytes: Uint8Array, maxPages = PDF_CHUNK_PAGES): Promise<Uint8Array[]> {
   const src = await PDFDocument.load(bytes, { ignoreEncryption: true })
   const total = src.getPageCount()
   if (total <= maxPages) return [bytes]
@@ -72,11 +78,14 @@ function toBase64(bytes: Uint8Array): string {
 const isTooLarge = (e: unknown): boolean =>
   e instanceof AiError && e.code === 'request' && (e.status === 413 || /too (long|large)|request_too_large/i.test(e.message))
 
-/** Splits a chunk into two halves of at most 45 pages; [] when it has a single page. */
-async function halvePdf(bytes: Uint8Array): Promise<Uint8Array[]> {
+/** Still rate-limited after the SDK's own retries: usually one request is bigger than the per-minute token limit. */
+const isRateLimited = (e: unknown): boolean => e instanceof AiError && e.code === 'rate-limit'
+
+/** Splits a chunk into two halves; [] when it has fewer than `minPages` pages. */
+async function halvePdf(bytes: Uint8Array, minPages = 2): Promise<Uint8Array[]> {
   const n = (await PDFDocument.load(bytes, { ignoreEncryption: true })).getPageCount()
-  if (n < 2) return []
-  return splitPdf(bytes, Math.min(45, Math.ceil(n / 2)))
+  if (n < minPages) return []
+  return splitPdf(bytes, Math.ceil(n / 2))
 }
 
 const SECTIONS: { name: string; schema: z.ZodType<Partial<SeasonExtraction>>; ask: string; kinds: string[] }[] = [
@@ -118,24 +127,26 @@ export async function extractSeason(
     for (const sec of SECTIONS) {
       const ask = (bytes: Uint8Array, label: string) => provider.generate({
         system: SEASON_SYSTEM_PROMPT,
-        content: [{ type: 'pdf', base64: toBase64(bytes) } satisfies AiContent,
+        // cache: the same chunk is sent for each of the three sections.
+        content: [{ type: 'pdf', base64: toBase64(bytes), cache: true } satisfies AiContent,
           { type: 'text', text: `${label} ${sec.ask}${existingKeysText(existingKeys, sec.kinds)}` }],
         schema: sec.schema, schemaName: sec.name, maxTokens: 16000,
       })
-      const label = `Trecho ${i + 1} de ${chunks.length} do manual.`
-      let res: Partial<SeasonExtraction>
-      try {
-        res = await ask(chunk, label)
-      } catch (e) {
-        // Too large for the provider: retry this chunk once, split in halves (≤45 pages each).
-        const halves = isTooLarge(e) ? await halvePdf(chunk) : []
-        if (halves.length < 2) throw e
-        const results: Partial<SeasonExtraction>[] = []
-        for (const [j, h] of halves.entries()) results.push(await ask(h, `${label} (parte ${j + 1} de ${halves.length})`))
-        const m = mergeExtractions(results.map((r) => ({ ...emptyExtraction(), ...r })))
-        const keys = new Set(results.flatMap((r) => Object.keys(r)))
-        res = Object.fromEntries([...keys].map((k) => [k, m[k as keyof SeasonExtraction]]))
+      // Too large or over the rate limit: split the chunk in halves and retry, recursively.
+      const askSplitting = async (bytes: Uint8Array, label: string): Promise<Partial<SeasonExtraction>> => {
+        try {
+          return await ask(bytes, label)
+        } catch (e) {
+          const halves = isTooLarge(e) ? await halvePdf(bytes) : isRateLimited(e) ? await halvePdf(bytes, 4) : []
+          if (halves.length < 2) throw e
+          const results: Partial<SeasonExtraction>[] = []
+          for (const [j, h] of halves.entries()) results.push(await askSplitting(h, `${label} (parte ${j + 1} de ${halves.length})`))
+          const m = mergeExtractions(results.map((r) => ({ ...emptyExtraction(), ...r })))
+          const keys = new Set(results.flatMap((r) => Object.keys(r)))
+          return Object.fromEntries([...keys].map((k) => [k, m[k as keyof SeasonExtraction]]))
+        }
       }
+      const res = await askSplitting(chunk, `Trecho ${i + 1} de ${chunks.length} do manual.`)
       Object.assign(part, res)
       onProgress?.(++done, total)
     }

@@ -4,7 +4,8 @@ import { resolveKey, type TeamKeys } from './keys'
 import { AnthropicProvider } from './anthropic'
 import { OpenAiProvider } from './openai'
 
-export type AiContent = { type: 'pdf'; base64: string } | { type: 'text'; text: string }
+/** `cache`: the provider may cache this block (and everything before it) for the next requests. */
+export type AiContent = { type: 'pdf'; base64: string; cache?: boolean } | { type: 'text'; text: string }
 
 export interface AiRequest<T> {
   system: string

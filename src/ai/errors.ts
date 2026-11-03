@@ -28,6 +28,7 @@ export const aiErrorMessage = (code: AiErrorCode): string => MESSAGES[code]
 export function aiErrorText(e: AiError): string {
   const detail = e.message && e.message !== e.code ? e.message : ''
   if (!detail) return MESSAGES[e.code]
+  if (e.code === 'rate-limit') return `Limite da API atingido: ${detail}`
   return e.code === 'request' ? `${MESSAGES.request.replace(/\.$/, '')}: ${detail}` : detail
 }
 
@@ -44,7 +45,7 @@ export function toAiError(e: unknown): AiError {
   if (e instanceof AiError) return e
   const status = (e as { status?: number } | null)?.status
   if (status === 401 || status === 403) return new AiError('invalid-key', undefined, status)
-  if (status === 429) return new AiError('rate-limit', undefined, status)
+  if (status === 429) return new AiError('rate-limit', providerMessage(e) || undefined, status)
   if (typeof status === 'number' && status >= 500) return new AiError('server', undefined, status)
   if (typeof status === 'number' && status >= 400) return new AiError('request', providerMessage(e) || undefined, status)
   return new AiError('network')

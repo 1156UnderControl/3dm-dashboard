@@ -77,7 +77,7 @@ describe('askManual', () => {
 
   test('multi-chunk none found returns the last answer', async () => {
     const { provider, calls } = fake([ans(false, 'n1'), ans(false, 'n2'), ans(false, 'n3')])
-    const r = await askManual(provider, await makePdf(200), model, 'Q')
+    const r = await askManual(provider, await makePdf(70), model, 'Q')
     expect(calls).toHaveLength(3)
     expect(r.answer).toBe('n3')
   })
