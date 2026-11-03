@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../firebase', () => ({ auth: {}, db: {}, rtdb: {} }))
+vi.mock('../firebase', () => ({ auth: {}, db: { app: { options: { projectId: 'demo-proj' } } }, rtdb: {} }))
 vi.mock('../data/paths', () => ({ memberDoc: (_db: unknown, email: string) => ({ email }) }))
 vi.mock('../data/hooks', () => ({
   useSeasons: () => ({ data: [], loading: false, error: null }),
@@ -44,6 +44,7 @@ describe('AuthGate', () => {
     authUser = { email: 'x@y.com' }
     renderApp()
     expect(screen.getByText('Sua conta não está liberada. Peça acesso a um admin da 1156.')).toBeInTheDocument()
+    expect(screen.getByText(/Conectado como x@y.com · projeto demo-proj/)).toBeInTheDocument()
   })
 
   it('lets a member in without admin links', () => {

@@ -34,6 +34,15 @@ jobs:
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
           VITE_FIREBASE_DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+      - name: Check the app is built for the project it is deployed to
+        env:
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+        run: |
+          if [ "$VITE_FIREBASE_PROJECT_ID" != "$FIREBASE_PROJECT_ID" ]; then
+            echo "::error::VITE_FIREBASE_PROJECT_ID and FIREBASE_PROJECT_ID are different projects. The app would read data from one project while rules and hosting go to the other. Set all VITE_FIREBASE_* secrets from the web app config of the project in FIREBASE_PROJECT_ID."
+            exit 1
+          fi
+          echo "App and deploy use the same project."
       - name: Check the service account's access
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
