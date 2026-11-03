@@ -5,8 +5,11 @@ import { useGroups, useItems, useMembers, useSeason, useSteps } from '../../data
 import { setPresence, usePresence } from '../../data/presence'
 import { getStep, STEPS, type ItemKindDef, type StepDef } from '../../threedm/template'
 import type { Item } from '../../threedm/types'
+import CadFlow from './CadFlow'
+import DecisionMatrix from './DecisionMatrix'
 import HistoryPanel from './HistoryPanel'
 import { ItemTable } from './ItemTable'
+import PriorityBoard from './PriorityBoard'
 import StepHeader from './StepHeader'
 
 interface ViewProps {
@@ -15,9 +18,21 @@ interface ViewProps {
   onHistory: (item: Item) => void
 }
 
-/** Single switch point on `stepDef.view`. Task 9 adds priority-board / decision-matrix / cad-flow here. */
+/** Single switch point on `stepDef.view`. */
 function renderKind(stepDef: StepDef, kindDef: ItemKindDef, p: ViewProps): ReactNode {
+  const tableProps = {
+    sid: p.sid, stepDef, items: p.items, readOnly: p.readOnly, by: p.by, presence: p.presence,
+    selfUid: p.selfUid, members: p.members, onHistory: p.onHistory,
+  }
   switch (stepDef.view) {
+    case 'priority-board':
+      return kindDef.kind === 'priority' ? <PriorityBoard key={kindDef.kind} {...tableProps} kindDef={kindDef} /> : (
+        <ItemTable key={kindDef.kind} {...tableProps} kindDef={kindDef} />
+      )
+    case 'decision-matrix':
+      return kindDef.kind === 'attribute' ? <DecisionMatrix key={kindDef.kind} {...tableProps} /> : null
+    case 'cad-flow':
+      return kindDef.kind === 'cad' ? <CadFlow key={kindDef.kind} {...tableProps} /> : null
     default:
       return (
         <ItemTable key={kindDef.kind} sid={p.sid} stepDef={stepDef} kindDef={kindDef} items={p.items}
