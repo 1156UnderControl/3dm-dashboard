@@ -1,13 +1,12 @@
 import { useHistory } from '../../data/hooks'
 import type { HistoryAction, Member } from '../../threedm/types'
+import { fmt } from './historyFormat'
 
 const ACTION_LABEL: Record<HistoryAction, string> = {
   create: 'Criou item', update: 'Editou item', accept: 'Aceitou item da IA', reject: 'Rejeitou item da IA',
   delete: 'Excluiu item', 'step-update': 'Atualizou a etapa', close: 'Concluiu a etapa', reopen: 'Reabriu a etapa',
 }
 
-const fmt = (v: unknown) =>
-  v === null || v === undefined || v === '' ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v)
 
 function diffRows(before: unknown, after: unknown): Array<[string, unknown, unknown]> {
   const b = (before && typeof before === 'object' ? before : {}) as Record<string, unknown>

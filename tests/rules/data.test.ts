@@ -56,6 +56,22 @@ describe('data layer', () => {
     expect(ev[0]).toMatchObject({ by: ADMIN, itemId: id, stepId: 'regras', before: { text: 'a' }, after: { text: 'b' }, reason: 'typo' })
   })
 
+  test('history never stores image data URLs (create/update/delete), the item does', async () => {
+    const d = db()
+    const img1 = 'data:image/jpeg;base64,AAAA'
+    const img2 = 'data:image/jpeg;base64,BBBB'
+    const id = await createItem(d, SID, ADMIN, { stepId: 'regras', kind: 'rule', data: { foto: img1, text: 'a' } })
+    await updateItem(d, SID, ADMIN, await getItem(d, id), { foto: img2 })
+    expect((await getItem(d, id)).data.foto).toBe(img2)
+    await createItems(d, SID, ADMIN, [{ stepId: 'regras', kind: 'rule', data: { foto: img1 } }])
+    await deleteItem(d, SID, ADMIN, await getItem(d, id))
+    const h = await history(d)
+    expect(JSON.stringify(h)).not.toContain('data:')
+    expect(h.find((e) => e.action === 'update')).toMatchObject({ before: { foto: '[imagem]' }, after: { foto: '[imagem]' } })
+    expect(h.find((e) => e.action === 'create')).toMatchObject({ after: { data: { foto: '[imagem]', text: 'a' } } })
+    expect(h.find((e) => e.action === 'delete')).toMatchObject({ before: { data: { foto: '[imagem]' } } })
+  })
+
   test('createItems writes 250 items and 250 create history events across batches', async () => {
     const d = db()
     const items = Array.from({ length: 250 }, (_, i) => ({ stepId: '1.2', kind: 'rule', data: { regra: `G${i}` }, origin: 'ai' as const, aiKey: `rule:G${i}`, citation: `G${i}` }))

@@ -3,6 +3,16 @@ import { nextOrigin } from '../threedm/origin'
 import type { HistoryAction, HistoryEvent, Item, NewItem } from '../threedm/types'
 import { historyCol, itemDoc, itemsCol } from './paths'
 
+/** History copy of a value: any string starting with "data:" (inline image) becomes "[imagem]". */
+export function scrubImages<T>(v: T): T {
+  if (typeof v === 'string') return (v.startsWith('data:') ? '[imagem]' : v) as T
+  if (Array.isArray(v)) return v.map(scrubImages) as T
+  if (v && typeof v === 'object') {
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrubImages(x)])) as T
+  }
+  return v
+}
+
 function event(by: string, stepId: string, itemId: string, action: HistoryAction, extra: Partial<HistoryEvent> = {}): HistoryEvent {
   const e: HistoryEvent = { at: Date.now(), by, stepId, itemId, action }
   for (const [k, v] of Object.entries(extra)) if (v !== undefined) (e as unknown as Record<string, unknown>)[k] = v
@@ -26,7 +36,7 @@ export async function createItem(db: Firestore, sid: string, by: string, input: 
   const data = newItemData(by, input, now, now)
   const batch = writeBatch(db)
   batch.set(ref, data)
-  batch.set(doc(historyCol(db, sid)), event(by, input.stepId, ref.id, 'create', { after: data }))
+  batch.set(doc(historyCol(db, sid)), event(by, input.stepId, ref.id, 'create', { after: scrubImages(data) }))
   await batch.commit()
   return ref.id
 }
@@ -41,7 +51,7 @@ export async function createItems(db: Firestore, sid: string, by: string, items:
       const ref = doc(itemsCol(db, sid))
       const data = newItemData(by, input, now, now + start + i) // keeps the extraction order
       batch.set(ref, data)
-      batch.set(doc(historyCol(db, sid)), event(by, input.stepId, ref.id, 'create', { after: data }))
+      batch.set(doc(historyCol(db, sid)), event(by, input.stepId, ref.id, 'create', { after: scrubImages(data) }))
     })
     await batch.commit()
   }
@@ -61,7 +71,7 @@ export async function updateItem(
   if (origin !== item.origin) { before.origin = item.origin; after.origin = origin }
   const batch = writeBatch(db)
   batch.set(itemDoc(db, sid, item.id), { data: patch, origin, updatedBy: by, updatedAt: Date.now() }, { merge: true })
-  batch.set(doc(historyCol(db, sid)), event(by, item.stepId, item.id, 'update', { before, after, reason }))
+  batch.set(doc(historyCol(db, sid)), event(by, item.stepId, item.id, 'update', { before: scrubImages(before), after: scrubImages(after), reason }))
   await batch.commit()
 }
 
@@ -89,7 +99,7 @@ export async function deleteItem(db: Firestore, sid: string, by: string, item: I
   const batch = writeBatch(db)
   batch.delete(itemDoc(db, sid, item.id))
   batch.set(doc(historyCol(db, sid)), event(by, item.stepId, item.id, 'delete', {
-    before: { kind: item.kind, data: item.data }, reason,
+    before: scrubImages({ kind: item.kind, data: item.data }), reason,
   }))
   await batch.commit()
 }
