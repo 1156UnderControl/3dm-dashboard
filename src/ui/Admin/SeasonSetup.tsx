@@ -9,6 +9,7 @@ import { useTeamKeys } from '../../ai/keys'
 import { AiError, aiErrorText, getProvider } from '../../ai/provider'
 import { extractSeason } from '../../ai/extract'
 import { pdfCache } from '../../ai/pdfCache'
+import { includedByDefault, parsePageRanges, readManualOutline, selectPages, type ManualOutline } from '../../ai/manualSections'
 import { countByStep, dedupeAiItems, mergeExtraction } from '../../ai/toItems'
 import type { SeasonExtraction } from '../../ai/seasonSchema'
 import { createItems } from '../../data/items'
@@ -38,6 +39,9 @@ export default function SeasonSetup() {
   const [model, setModel] = useState<SeasonExtraction | null>(null)
   const [newItems, setNewItems] = useState<NewItem[]>([])
   const [written, setWritten] = useState(0)
+  const [outline, setOutline] = useState<ManualOutline | null>(null)
+  const [checked, setChecked] = useState<Set<number>>(new Set())
+  const [ranges, setRanges] = useState('')
 
   useEffect(() => {
     if (!sid) return
@@ -45,6 +49,19 @@ export default function SeasonSetup() {
     pdfCache.get(sid).then((b) => { if (live && b) { setPdf(b); setCached(true) } }).catch(() => {})
     return () => { live = false }
   }, [sid])
+
+  // Sections from the PDF's bookmarks; the ones that don't feed the 3DM start unchecked.
+  useEffect(() => {
+    if (!pdf) { setOutline(null); return }
+    let live = true
+    readManualOutline(pdf).then((o) => {
+      if (!live) return
+      setOutline(o)
+      setChecked(new Set(o.sections.flatMap((sec, i) => (includedByDefault(sec.title) ? [i] : []))))
+      setRanges(`1-${o.pageCount}`)
+    }).catch(() => { if (live) setOutline(null) })
+    return () => { live = false }
+  }, [pdf])
 
   if (loading) return <p className="text-slate-500">Carregando…</p>
   if (!sid || !season) return <p>Temporada não encontrada.</p>
@@ -57,14 +74,28 @@ export default function SeasonSetup() {
     try { await pdfCache.put(sid, bytes) } catch { /* cache is a convenience only */ }
   }
 
+  /**
+   * 0-based pages to send: checked sections, or the typed ranges when the PDF has no bookmarks;
+   * 'all' when the PDF could not be read here (the whole manual is sent); null when nothing valid is selected.
+   */
+  function selectedPages(): number[] | 'all' | null {
+    if (!outline) return 'all'
+    if (!outline.sections.length) return parsePageRanges(ranges, outline.pageCount)
+    const pages = outline.sections.flatMap((sec, i) => (checked.has(i) ? Array.from({ length: sec.end - sec.start }, (_, k) => sec.start + k) : []))
+    return pages.length ? pages : null
+  }
+
   async function read() {
     if (!pdf || !sid) return
+    const pages = selectedPages()
+    if (!pages) return
     setError(''); setPhase('reading'); setProgress('Preparando o manual…')
     try {
       const provider = getProvider(config, team)
       const existing = await loadExisting(sid)
       const existingKeys = existing.map((i) => i.aiKey).filter((k): k is string => !!k)
-      const ex = await extractSeason(provider, pdf, (d, t) => setProgress(progressText(d, t)), existingKeys)
+      const manual = pages !== 'all' && outline && pages.length < outline.pageCount ? await selectPages(pdf, pages) : pdf
+      const ex = await extractSeason(provider, manual, (d, t) => setProgress(progressText(d, t)), existingKeys)
       setModel(ex)
       setNewItems(mergeExtraction(ex, existing))
       setPhase('preview')
@@ -97,6 +128,8 @@ export default function SeasonSetup() {
 
   const counts = countByStep(newItems)
   const busy = phase === 'reading' || phase === 'writing'
+  const pages = selectedPages()
+  const toggle = (i: number) => setChecked((prev) => { const n = new Set(prev); if (n.has(i)) n.delete(i); else n.add(i); return n })
 
   return (
     <section className="max-w-2xl space-y-4">
@@ -110,7 +143,35 @@ export default function SeasonSetup() {
           onChange={(e) => void onPick(e.target.files?.[0])} />
       </label>
       {cached && <p className="text-sm text-slate-600">Usando o manual salvo neste navegador.</p>}
-      <button className="rounded bg-blue-600 px-3 py-1 text-white disabled:opacity-50" disabled={!pdf || busy} onClick={() => void read()}>
+      {pdf && outline && (
+        <fieldset className="space-y-1 rounded border bg-white p-3" disabled={busy}>
+          <legend className="px-1 text-sm font-medium">Partes do manual enviadas à IA</legend>
+          {outline.sections.length > 0 ? (
+            <>
+              <p className="text-xs text-slate-500">Partes que não alimentam o 3DM (prêmios, eventos, inspeção…) já vêm desmarcadas.</p>
+              <ul className="max-h-72 space-y-0.5 overflow-y-auto text-sm">
+                {outline.sections.map((sec, i) => (
+                  <li key={i}>
+                    <label className="flex items-baseline gap-2">
+                      <input type="checkbox" checked={checked.has(i)} onChange={() => toggle(i)} />
+                      <span className="flex-1">{sec.title}</span>
+                      <span className="text-xs text-slate-500">págs. {sec.start + 1}–{sec.end}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <label className="block text-sm">O PDF não tem sumário navegável. Páginas a enviar (ex.: 1-45, 60-110):
+              <input className="mt-1 block w-full rounded border px-2 py-1 font-mono" value={ranges} onChange={(e) => setRanges(e.target.value)} />
+            </label>
+          )}
+          <p className="text-sm" data-testid="page-summary">
+            {Array.isArray(pages) ? `Enviando ${pages.length} de ${outline.pageCount} páginas.` : 'Selecione ao menos uma parte (ou um intervalo válido).'}
+          </p>
+        </fieldset>
+      )}
+      <button className="rounded bg-blue-600 px-3 py-1 text-white disabled:opacity-50" disabled={!pdf || !pages || busy} onClick={() => void read()}>
         Ler manual com IA
       </button>
       {phase === 'reading' && <p role="status" className="text-sm">{progress}</p>}

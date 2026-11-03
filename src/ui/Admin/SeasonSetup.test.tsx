@@ -4,6 +4,8 @@ import { MemoryRouter, Route, Routes } from 'react-router'
 import { Ctx } from '../../auth/context'
 import { AiError } from '../../ai/provider'
 import { emptyExtraction } from '../../ai/seasonSchema'
+import { PDFDocument } from 'pdf-lib'
+import { outlinedPdf } from '../../ai/testPdf'
 
 const h = vi.hoisted(() => ({
   season: { id: 's26', name: 'REBUILT', year: 2026, status: 'active', createdAt: 1 } as Record<string, unknown>,
@@ -32,6 +34,13 @@ const renderPage = () => render(
       <Routes><Route path="/s/:sid/setup" element={<SeasonSetup />} /></Routes>
     </MemoryRouter>
   </Ctx.Provider>)
+
+const pickBytes = (bytes: Uint8Array) => {
+  const file = new File([bytes as BlobPart], 'manual.pdf', { type: 'application/pdf' })
+  Object.defineProperty(file, 'arrayBuffer', { value: async () => bytes.slice().buffer })
+  fireEvent.change(screen.getByLabelText('Manual do jogo (PDF)'), { target: { files: [file] } })
+}
+const sentPages = async () => (await PDFDocument.load(h.extract.mock.calls[0][1] as Uint8Array)).getPageCount()
 
 const pick = () => {
   const file = new File([new Uint8Array([37, 80, 68, 70])], 'manual.pdf', { type: 'application/pdf' })
@@ -104,5 +113,37 @@ describe('SeasonSetup', () => {
     renderPage()
     expect(screen.getByText(/temporada arquivada/i)).toBeInTheDocument()
     expect(screen.queryByLabelText('Manual do jogo (PDF)')).toBeNull()
+  })
+
+  test('lists manual sections, skips the ones that do not feed the 3DM, and sends only the checked pages', async () => {
+    h.extract.mockResolvedValue({ ...emptyExtraction(), gameName: 'G' })
+    renderPage()
+    pickBytes(await outlinedPdf(20, [['1 Introduction', 2], ['5 Game Rules', 5], ['8 Robot Construction Rules', 10], ['12 Awards', 16]]))
+    const awards = await screen.findByRole('checkbox', { name: /12 Awards/ })
+    expect(awards).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Páginas iniciais/ })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /5 Game Rules/ })).toBeChecked()
+    expect(screen.getByTestId('page-summary')).toHaveTextContent('Enviando 14 de 20 páginas.')
+    fireEvent.click(screen.getByRole('checkbox', { name: /1 Introduction/ }))
+    expect(screen.getByTestId('page-summary')).toHaveTextContent('Enviando 11 de 20 páginas.')
+    fireEvent.click(screen.getByText('Ler manual com IA'))
+    await screen.findByText(/itens novos/)
+    expect(await sentPages()).toBe(11)
+  })
+
+  test('without bookmarks, sends the typed page ranges', async () => {
+    h.extract.mockResolvedValue({ ...emptyExtraction(), gameName: 'G' })
+    const doc = await PDFDocument.create(); for (let i = 0; i < 10; i++) doc.addPage()
+    renderPage()
+    pickBytes(await doc.save())
+    const input = await screen.findByDisplayValue('1-10')
+    fireEvent.change(input, { target: { value: '2-4, 9' } })
+    expect(screen.getByTestId('page-summary')).toHaveTextContent('Enviando 4 de 10 páginas.')
+    fireEvent.change(input, { target: { value: 'abc' } })
+    expect(screen.getByText('Ler manual com IA')).toBeDisabled()
+    fireEvent.change(input, { target: { value: '2-4, 9' } })
+    fireEvent.click(screen.getByText('Ler manual com IA'))
+    await screen.findByText(/itens novos/)
+    expect(await sentPages()).toBe(4)
   })
 })
