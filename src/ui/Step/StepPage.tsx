@@ -5,6 +5,7 @@ import { useGroups, useItems, useMembers, useSeason, useSteps } from '../../data
 import { setPresence, usePresence } from '../../data/presence'
 import { getStep, STEPS, type ItemKindDef, type StepDef } from '../../threedm/template'
 import type { Item } from '../../threedm/types'
+import { AskManual, SuggestBar } from './AiTools'
 import CadFlow from './CadFlow'
 import DecisionMatrix from './DecisionMatrix'
 import HistoryPanel from './HistoryPanel'
@@ -74,7 +75,16 @@ export default function StepPage() {
     <div>
       {readOnly && <div role="status" className="mb-3 rounded bg-amber-100 p-2 text-amber-900">Temporada arquivada</div>}
       <StepHeader sid={sid} stepDef={stepDef} state={stepStates.find((s) => s.stepId === stepDef.id)} groups={groups} by={by} readOnly={readOnly} />
-      {stepDef.kinds.map((k) => renderKind(stepDef, k, props))}
+      {stepDef.id === '1.2' && <AskManual sid={sid} by={by} readOnly={readOnly} />}
+      {stepDef.kinds.map((k) => {
+        const view = renderKind(stepDef, k, props)
+        return view && (
+          <div key={k.kind}>
+            <SuggestBar sid={sid} stepDef={stepDef} kindDef={k} items={items} by={by} readOnly={readOnly} />
+            {view}
+          </div>
+        )
+      })}
       <button className="rounded border px-3 py-1 text-sm" onClick={() => { setHistoryItem(null); setShowHistory((v) => !v) }}>
         {showHistory && !historyItem ? 'Ocultar histórico' : 'Histórico da etapa'}
       </button>
