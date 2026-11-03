@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { db } from '../../firebase'
 import { createItem, updateItem } from '../../data/items'
 import { useItems } from '../../data/hooks'
@@ -34,6 +34,9 @@ export default function DecisionMatrix(props: Props) {
   const { data: archItems } = useItems(sid, '4.1')
   const [chosen, setChosen] = useState<string | null>(null)
   const [just, setJust] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
+  const pending = useRef<Map<string, { id: string; p: Promise<string>; data: Record<string, unknown> }>>(new Map())
 
   const active = (xs: Item[], kind: string) => xs.filter((i) => i.kind === kind && i.state !== 'rejected')
   const priorities = active(prioItems, 'priority').filter((p) => p.data.bucket === 'Precisamos' || p.data.bucket === 'Queremos')
@@ -42,7 +45,7 @@ export default function DecisionMatrix(props: Props) {
   const attributes = attrItems.filter((a) => String(a.data.atributo ?? '').trim()).map((a) => ({ atributo: String(a.data.atributo), peso: Number(a.data.peso) || 0 }))
   const coverageItems = active(items, 'coverage')
   const scoreItems = active(items, 'score')
-  const choice = active(items, 'choice')[0]
+  const choice = [...active(items, 'choice')].sort((a, b) => b.updatedAt - a.updatedAt)[0]
   const pname = (id: string) => String(priorities.find((p) => p.id === id)?.data.item ?? id)
   const aname = (a: Item) => String(a.data.nome ?? '') || a.id
 
@@ -54,26 +57,48 @@ export default function DecisionMatrix(props: Props) {
     scores: scoreItems.map((s) => ({ archetypeId: String(s.data.archetypeId), attribute: String(s.data.attribute), nota: Number(s.data.nota) || 0 })),
   })
 
+  /** Update the existing item, or create it once (concurrent calls for the same key wait for the first create). */
+  const upsert = async (key: string, existing: Item | undefined, kind: string, data: Record<string, unknown>) => {
+    if (existing) { await updateItem(db, sid, by, existing, data); return }
+    const inflight = pending.current.get(key)
+    if (inflight) {
+      const id = await inflight.p
+      const synth = { id, stepId: stepDef.id, kind, data: inflight.data, origin: 'human', state: 'active', order: 0,
+        createdBy: by, updatedBy: by, updatedAt: 0 } as Item
+      inflight.data = { ...inflight.data, ...data }
+      await updateItem(db, sid, by, synth, data)
+      return
+    }
+    const entry = { id: '', data, p: createItem(db, sid, by, { stepId: stepDef.id, kind, data }) }
+    pending.current.set(key, entry)
+    try { await entry.p } catch (e) { pending.current.delete(key); throw e }
+  }
   const toggle = (archetypeId: string, priorityId: string, atende: boolean) => {
     const ex = coverageItems.find((c) => c.data.archetypeId === archetypeId && c.data.priorityId === priorityId)
-    if (ex) void updateItem(db, sid, by, ex, { atende })
-    else void createItem(db, sid, by, { stepId: stepDef.id, kind: 'coverage', data: { archetypeId, priorityId, atende } })
+    void upsert(`cov:${archetypeId}:${priorityId}`, ex, 'coverage', ex ? { atende } : { archetypeId, priorityId, atende })
   }
   const setScore = (archetypeId: string, attribute: string, nota: number) => {
     const ex = scoreItems.find((c) => c.data.archetypeId === archetypeId && c.data.attribute === attribute)
-    if (ex) void updateItem(db, sid, by, ex, { nota })
-    else void createItem(db, sid, by, { stepId: stepDef.id, kind: 'score', data: { archetypeId, attribute, nota } })
+    void upsert(`score:${archetypeId}:${attribute}`, ex, 'score', ex ? { nota } : { archetypeId, attribute, nota })
   }
   const choiceArch = chosen ?? String(choice?.data.archetypeId ?? '')
   const choiceJust = just ?? String(choice?.data.justificativa ?? '')
   const escolher = async () => {
-    const data = { archetypeId: choiceArch, justificativa: choiceJust.trim() }
-    if (choice) await updateItem(db, sid, by, choice, data)
-    else await createItem(db, sid, by, { stepId: stepDef.id, kind: 'choice', data })
-    setChosen(null); setJust(null)
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    try {
+      await upsert('choice', choice, 'choice', { archetypeId: choiceArch, justificativa: choiceJust.trim() })
+      setChosen(null); setJust(null)
+    } finally { busyRef.current = false; setBusy(false) }
   }
   const seedDefaults = async () => {
-    for (const [atributo, peso] of DEFAULT_ATTRS) await createItem(db, sid, by, { stepId: stepDef.id, kind: 'attribute', data: { atributo, peso } })
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    try {
+      for (const [atributo, peso] of DEFAULT_ATTRS) await createItem(db, sid, by, { stepId: stepDef.id, kind: 'attribute', data: { atributo, peso } })
+    } finally { busyRef.current = false; setBusy(false) }
   }
 
   const th = 'px-2 py-1 text-left text-xs font-medium'
@@ -107,7 +132,7 @@ export default function DecisionMatrix(props: Props) {
 
       <ItemTable {...props} kindDef={stepDef.kinds.find((k) => k.kind === 'attribute')!} />
       {!readOnly && attrItems.length === 0 && (
-        <button className="mb-4 rounded border px-3 py-1 text-sm" onClick={() => void seedDefaults()}>Usar atributos padrão</button>
+        <button className="mb-4 rounded border px-3 py-1 text-sm" disabled={busy} onClick={() => void seedDefaults()}>Usar atributos padrão</button>
       )}
 
       <section className="mb-6">
@@ -158,7 +183,7 @@ export default function DecisionMatrix(props: Props) {
             onChange={(e) => setJust(e.target.value)} />
           {!readOnly && (
             <button className="self-start rounded border px-3 py-1 text-sm disabled:opacity-50"
-              disabled={!choiceArch || !choiceJust.trim()} onClick={() => void escolher()}>Escolher</button>
+              disabled={busy || !choiceArch || !choiceJust.trim()} onClick={() => void escolher()}>Escolher</button>
           )}
         </div>
       </section>

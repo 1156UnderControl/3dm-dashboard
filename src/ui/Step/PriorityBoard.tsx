@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { db } from '../../firebase'
 import { acceptItem, createItem, rejectItem, updateItem } from '../../data/items'
 import { useItems } from '../../data/hooks'
@@ -53,6 +53,8 @@ function Card({ item, sid, by, readOnly }: { item: ItemTableProps['items'][numbe
 
 export default function PriorityBoard({ sid, stepDef, kindDef, items, readOnly, by }: ItemTableProps) {
   const { data: skills } = useItems(sid, '1.4')
+  const [importing, setImporting] = useState(false)
+  const importRef = useRef(false)
   const cards = items.filter((i) => i.kind === kindDef.kind && i.state !== 'rejected').sort((a, b) => a.order - b.order)
   const columns = [
     { key: 'sem', title: 'Sem classificação', match: (b: string) => !BUCKETS.includes(b) },
@@ -60,6 +62,10 @@ export default function PriorityBoard({ sid, stepDef, kindDef, items, readOnly, 
   ]
 
   const importSkills = async () => {
+    if (importRef.current) return
+    importRef.current = true
+    setImporting(true)
+    try {
     const existing = new Set(cards.map((c) => norm(c.data.item)))
     for (const s of skills) {
       if (s.kind !== 'skill' || s.state === 'rejected') continue
@@ -68,6 +74,7 @@ export default function PriorityBoard({ sid, stepDef, kindDef, items, readOnly, 
       existing.add(norm(name))
       await createItem(db, sid, by, { stepId: stepDef.id, kind: kindDef.kind, data: { item: name, bucket: '' } })
     }
+    } finally { importRef.current = false; setImporting(false) }
   }
 
   return (
@@ -75,7 +82,7 @@ export default function PriorityBoard({ sid, stepDef, kindDef, items, readOnly, 
       <div className="mb-2 flex items-center justify-between">
         <h3 className="font-semibold">{kindDef.label}</h3>
         {!readOnly && (
-          <button className="rounded border px-3 py-1 text-sm" onClick={() => void importSkills()}>Importar habilidades da 1.4</button>
+          <button className="rounded border px-3 py-1 text-sm" disabled={importing} onClick={() => void importSkills()}>Importar habilidades da 1.4</button>
         )}
       </div>
       {stepDef.guidance && <p className="mb-2 text-sm text-slate-600">{stepDef.guidance}</p>}

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../firebase', () => ({ auth: {}, db: { fake: true }, rtdb: {} }))
 vi.mock('../../data/items', () => ({
-  createItem: vi.fn(), updateItem: vi.fn(), acceptItem: vi.fn(), rejectItem: vi.fn(), deleteItem: vi.fn(),
+  createItem: vi.fn(() => Promise.resolve('new1')), updateItem: vi.fn(), acceptItem: vi.fn(), rejectItem: vi.fn(), deleteItem: vi.fn(),
 }))
 vi.mock('../../data/presence', () => ({ setPresence: vi.fn(() => Promise.resolve()) }))
 const mkI = (id: string, stepId: string, kind: string, data: Record<string, unknown>) => ({
@@ -36,6 +36,7 @@ const renderIt = (items: Item[]) =>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(createItem).mockImplementation(() => Promise.resolve('new1'))
   scoreMock.mockReturnValue({ a1: { coveragePct: 0.5, weighted: 0.8, finalPct: 83, missingNeeds: [] } })
 })
 
@@ -85,5 +86,32 @@ describe('DecisionMatrix', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Escolher' }))
     expect(createItem).toHaveBeenCalledWith({ fake: true }, 's1', 'me@x',
       { stepId: '4.2', kind: 'choice', data: { archetypeId: 'a1', justificativa: 'melhor' } })
+  })
+
+  it('rapid coverage toggles on an empty cell create once then update', async () => {
+    renderIt(own())
+    const box = screen.getByLabelText('Coletar FUEL / Arq A')
+    await userEvent.click(box)
+    await userEvent.click(box)
+    await vi.waitFor(() => expect(updateItem).toHaveBeenCalledTimes(1))
+    expect(createItem).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(updateItem).mock.calls[0][3]).toMatchObject({ id: 'new1' })
+  })
+
+  it('double-click Escolher creates one choice', async () => {
+    renderIt(own())
+    await userEvent.selectOptions(screen.getByLabelText('Arquétipo escolhido'), 'a1')
+    await userEvent.type(screen.getByLabelText('Justificativa'), 'melhor')
+    const btn = screen.getByRole('button', { name: 'Escolher' })
+    await userEvent.dblClick(btn)
+    expect(createItem).toHaveBeenCalledTimes(1)
+  })
+
+  it('double-click Usar atributos padrão seeds 4 attributes once', async () => {
+    vi.mocked(createItem).mockImplementation(() => new Promise((r) => setTimeout(() => r('x'), 30)))
+    renderIt([])
+    await userEvent.dblClick(screen.getByRole('button', { name: 'Usar atributos padrão' }))
+    await vi.waitFor(() => expect(createItem).toHaveBeenCalledTimes(4))
+    expect(createItem).toHaveBeenCalledTimes(4)
   })
 })
