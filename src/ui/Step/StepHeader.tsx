@@ -8,10 +8,13 @@ const STATUS_LABEL: Record<StepStatus, string> = {
   nao_iniciado: 'Não iniciado', em_andamento: 'Em andamento', em_revisao: 'Em revisão', concluido: 'Concluído',
 }
 
-export default function StepHeader({ sid, stepDef, state, groups, by, readOnly }: {
+export default function StepHeader({ sid, stepDef, state, groups, by, readOnly, isAdmin = false }: {
   sid: string; stepDef: StepDef; state?: StepState; groups: Group[]; by: string; readOnly: boolean
+  /** Closing/reopening a stage is admin-only (spec §3); members only see the status. */
+  isAdmin?: boolean
 }) {
   const [draft, setDraft] = useState<string | null>(null)
+  const [deadlineDraft, setDeadlineDraft] = useState<string | null>(null)
   const conclusion = draft ?? state?.conclusion ?? ''
   const [reopening, setReopening] = useState(false)
   const [reason, setReason] = useState('')
@@ -41,8 +44,12 @@ export default function StepHeader({ sid, stepDef, state, groups, by, readOnly }
           </select>
         </label>
         <label className="text-sm">Prazo
-          <input type="date" disabled={readOnly} value={state?.deadline ?? ''} className="mt-1 w-full rounded border px-2 py-1"
-            onChange={(e) => patch({ deadline: e.target.value })} />
+          <input type="date" disabled={readOnly} value={deadlineDraft ?? state?.deadline ?? ''} className="mt-1 w-full rounded border px-2 py-1"
+            onChange={(e) => setDeadlineDraft(e.target.value)}
+            onBlur={() => {
+              if (deadlineDraft !== null && deadlineDraft !== (state?.deadline ?? '')) patch({ deadline: deadlineDraft })
+              setDeadlineDraft(null)
+            }} />
         </label>
         <label className="text-sm">Status
           <select disabled={readOnly || closed} value={status} className="mt-1 w-full rounded border px-2 py-1"
@@ -58,7 +65,7 @@ export default function StepHeader({ sid, stepDef, state, groups, by, readOnly }
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => { if (draft !== null && draft !== (state?.conclusion ?? '')) patch({ conclusion: draft }); setDraft(null) }} />
       </label>
-      {!readOnly && (
+      {!readOnly && isAdmin && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {!closed && (
             <button className="rounded bg-emerald-600 px-3 py-1 text-white" onClick={() => void closeStep(db, sid, by, stepDef.id, conclusion)}>

@@ -44,7 +44,7 @@ function renderKind(stepDef: StepDef, kindDef: ItemKindDef, p: ViewProps): React
 
 export default function StepPage() {
   const { sid, stepId } = useParams()
-  const { user } = useCurrentMember()
+  const { user, member } = useCurrentMember()
   const { data: season } = useSeason(sid)
   const { data: stepStates } = useSteps(sid)
   const { data: items } = useItems(sid, stepId)
@@ -74,7 +74,7 @@ export default function StepPage() {
   return (
     <div>
       {readOnly && <div role="status" className="mb-3 rounded bg-amber-100 p-2 text-amber-900">Temporada arquivada</div>}
-      <StepHeader sid={sid} stepDef={stepDef} state={stepStates.find((s) => s.stepId === stepDef.id)} groups={groups} by={by} readOnly={readOnly} />
+      <StepHeader sid={sid} stepDef={stepDef} state={stepStates.find((s) => s.stepId === stepDef.id)} groups={groups} by={by} readOnly={readOnly} isAdmin={member?.role === 'admin'} />
       {stepDef.id === '1.2' && <AskManual sid={sid} by={by} readOnly={readOnly} items={items} />}
       {stepDef.kinds.map((k) => {
         const view = renderKind(stepDef, k, props)
