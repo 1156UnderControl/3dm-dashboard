@@ -1,6 +1,7 @@
 name: CI
+# Checks pull requests. Pushes to main are checked by the Deploy workflow,
+# which runs the same steps before publishing.
 on:
-  push:
   pull_request:
 jobs:
   build:
