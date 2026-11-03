@@ -110,8 +110,11 @@ describe('DecisionMatrix', () => {
   it('double-click Usar atributos padrão seeds 4 attributes once', async () => {
     vi.mocked(createItem).mockImplementation(() => new Promise((r) => setTimeout(() => r('x'), 30)))
     renderIt([])
-    await userEvent.dblClick(screen.getByRole('button', { name: 'Usar atributos padrão' }))
+    const btn = screen.getByRole('button', { name: 'Usar atributos padrão' })
+    await userEvent.dblClick(btn)
     await vi.waitFor(() => expect(createItem).toHaveBeenCalledTimes(4))
+    // wait for the last save to finish so its state update doesn't land after teardown
+    await vi.waitFor(() => expect(btn).toBeEnabled())
     expect(createItem).toHaveBeenCalledTimes(4)
   })
 })
