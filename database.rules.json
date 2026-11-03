@@ -1,1 +1,14 @@
-{ "rules": { ".read": false, ".write": false } }
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "presence": {
+      "$sid": {
+        ".read": "auth != null",
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid"
+        }
+      }
+    }
+  }
+}

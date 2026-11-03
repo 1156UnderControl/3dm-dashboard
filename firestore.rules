@@ -1,8 +1,83 @@
 rules_version = '2';
+
+// FRC 1156 · 3DM — Firestore security rules.
+//
+// Access model: Google sign-in AND an allowlist doc at members/{email}.
+// Member doc ids are the user's email in LOWERCASE; the app lowercases emails
+// when it creates member docs, and the rules lowercase the token email to match.
+// Archived seasons are read-only; history is append-only; secrets are admin-write.
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if false;
+
+    // ---- helpers -----------------------------------------------------------
+
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.email is string
+        && request.auth.token.email_verified == true;
     }
+
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function memberPath() {
+      return /databases/$(database)/documents/members/$(myEmail());
+    }
+
+    function isMember() {
+      return signedIn() && exists(memberPath());
+    }
+
+    function isAdmin() {
+      return isMember() && get(memberPath()).data.role == 'admin';
+    }
+
+    function seasonActive(sid) {
+      return get(/databases/$(database)/documents/seasons/$(sid)).data.status == 'active';
+    }
+
+    // ---- top-level admin-managed collections -------------------------------
+
+    match /members/{email} {
+      allow read: if isMember();
+      allow write: if isAdmin();
+    }
+
+    match /config/{doc} {
+      allow read: if isMember();
+      allow write: if isAdmin();
+    }
+
+    // Team AI key (secrets/ai): members read it to call the AI, only admins set it.
+    match /secrets/{doc} {
+      allow read: if isMember();
+      allow write: if isAdmin();
+    }
+
+    // ---- seasons -----------------------------------------------------------
+
+    match /seasons/{sid} {
+      // Admins manage seasons (create, rename, archive/unarchive) regardless of status.
+      allow read: if isMember();
+      allow create, update, delete: if isAdmin();
+
+      // Collaborative state: editable by any member while the season is active.
+      match /{coll}/{docId} {
+        allow read: if isMember() && coll in ['steps', 'items', 'groups'];
+        allow write: if isMember() && coll in ['steps', 'items', 'groups'] && seasonActive(sid);
+      }
+
+      // Append-only audit trail: create only, by yourself, in an active season.
+      match /history/{eventId} {
+        allow read: if isMember();
+        allow create: if isMember()
+          && seasonActive(sid)
+          && request.resource.data.by == request.auth.token.email;
+        allow update, delete: if false;
+      }
+    }
+
+    // Anything else is denied by default (no matching rule).
   }
 }

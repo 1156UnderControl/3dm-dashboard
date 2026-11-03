@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run",
-    "test:rules": "firebase emulators:exec --only firestore,database \"vitest run tests/rules\"",
+    "test:rules": "firebase emulators:exec --only firestore,database \"vitest run --config vitest.rules.config.ts\"",
     "lint": "oxlint",
     "preview": "vite preview"
   },
