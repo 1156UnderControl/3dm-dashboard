@@ -9,6 +9,7 @@ import Members from './ui/Admin/Members'
 import Seasons from './ui/Admin/Seasons'
 import Groups from './ui/Admin/Groups'
 import AiSettings from './ui/Admin/AiSettings'
+import SeasonSetup from './ui/Admin/SeasonSetup'
 
 function RequireAdmin() {
   const { member } = useCurrentMember()
@@ -75,6 +76,7 @@ export default function AppRoutes() {
         <Route element={<RequireAdmin />}>
           <Route path="admin/members" element={<Members />} />
           <Route path="admin/seasons" element={<Seasons />} />
+          <Route path="s/:sid/setup" element={<SeasonSetup />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

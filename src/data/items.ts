@@ -9,21 +9,43 @@ function event(by: string, stepId: string, itemId: string, action: HistoryAction
   return e
 }
 
-export async function createItem(db: Firestore, sid: string, by: string, input: NewItem): Promise<string> {
-  const ref = doc(itemsCol(db, sid))
-  const now = Date.now()
+function newItemData(by: string, input: NewItem, now: number, order: number): Record<string, unknown> {
   const data: Record<string, unknown> = {
     stepId: input.stepId, kind: input.kind, data: input.data,
-    origin: input.origin ?? 'human', state: 'active', order: now,
+    origin: input.origin ?? 'human', state: 'active', order,
     createdBy: by, updatedBy: by, updatedAt: now,
   }
   if (input.aiKey !== undefined) data.aiKey = input.aiKey
   if (input.citation !== undefined) data.citation = input.citation
+  return data
+}
+
+export async function createItem(db: Firestore, sid: string, by: string, input: NewItem): Promise<string> {
+  const ref = doc(itemsCol(db, sid))
+  const now = Date.now()
+  const data = newItemData(by, input, now, now)
   const batch = writeBatch(db)
   batch.set(ref, data)
   batch.set(doc(historyCol(db, sid)), event(by, input.stepId, ref.id, 'create', { after: data }))
   await batch.commit()
   return ref.id
+}
+
+/** Bulk create: ≤200 items per batch (item + 'create' history event = ≤400 writes). Returns the count written. */
+export async function createItems(db: Firestore, sid: string, by: string, items: NewItem[]): Promise<number> {
+  const CHUNK = 200
+  const now = Date.now()
+  for (let start = 0; start < items.length; start += CHUNK) {
+    const batch = writeBatch(db)
+    items.slice(start, start + CHUNK).forEach((input, i) => {
+      const ref = doc(itemsCol(db, sid))
+      const data = newItemData(by, input, now, now + start + i) // keeps the extraction order
+      batch.set(ref, data)
+      batch.set(doc(historyCol(db, sid)), event(by, input.stepId, ref.id, 'create', { after: data }))
+    })
+    await batch.commit()
+  }
+  return items.length
 }
 
 export async function updateItem(

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing'
 import { collection, doc, getDoc, getDocs, orderBy, query, type Firestore } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest'
-import { acceptItem, createItem, deleteItem, rejectItem, updateItem } from '../../src/data/items'
+import { acceptItem, createItem, createItems, deleteItem, rejectItem, updateItem } from '../../src/data/items'
 import { archiveSeason, createSeason, reopenSeason } from '../../src/data/seasons'
 import { closeStep, reopenStep, updateStep } from '../../src/data/steps'
 import { addMember } from '../../src/data/members'
@@ -54,6 +54,18 @@ describe('data layer', () => {
     const ev = (await history(d)).filter((e) => e.action === 'update')
     expect(ev).toHaveLength(1)
     expect(ev[0]).toMatchObject({ by: ADMIN, itemId: id, stepId: 'regras', before: { text: 'a' }, after: { text: 'b' }, reason: 'typo' })
+  })
+
+  test('createItems writes 250 items and 250 create history events across batches', async () => {
+    const d = db()
+    const items = Array.from({ length: 250 }, (_, i) => ({ stepId: '1.2', kind: 'rule', data: { regra: `G${i}` }, origin: 'ai' as const, aiKey: `rule:G${i}`, citation: `G${i}` }))
+    expect(await createItems(d, SID, ADMIN, items)).toBe(250)
+    const its = await getDocs(collection(d, `seasons/${SID}/items`))
+    expect(its.size).toBe(250)
+    expect(its.docs[0].data()).toMatchObject({ origin: 'ai', state: 'active', createdBy: ADMIN })
+    const h = await history(d)
+    expect(h).toHaveLength(250)
+    expect(h.every((e) => e.action === 'create' && e.by === ADMIN && e.stepId === '1.2')).toBe(true)
   })
 
   test('editing an ai item sets origin ai-edited', async () => {

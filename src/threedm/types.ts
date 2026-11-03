@@ -1,10 +1,10 @@
+import type { SeasonExtraction } from '../ai/seasonSchema';
 export type Role = 'admin' | 'member';
 export interface Member { email: string; role: Role; displayName?: string }
 export interface AppConfig { aiProvider: 'anthropic' | 'openai'; model: string }
 export interface Season {
   id: string; name: string; year: number; status: 'active' | 'archived';
-  // Task 11 narrows this to SeasonExtraction (src/ai/seasonSchema.ts).
-  model?: Record<string, unknown>;
+  model?: SeasonExtraction;
   createdAt: number;
 }
 export interface Group { id: string; name: string; memberEmails: string[] }

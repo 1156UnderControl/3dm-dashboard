@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { Link } from 'react-router'
 import { db } from '../../firebase'
 import { useCurrentMember } from '../../auth/context'
 import { archiveSeason, createSeason, reopenSeason } from '../../data/seasons'
@@ -30,7 +31,10 @@ export default function Seasons() {
           <li key={s.id} className="flex items-center justify-between gap-2 px-3 py-2">
             <span>{s.name} ({s.year}) <span className="text-sm text-slate-500">{s.status === 'active' ? 'ativa' : 'arquivada'}</span></span>
             {s.status === 'active'
-              ? <button className="text-sm text-red-600" onClick={() => archiveSeason(db, s.id)}>Arquivar</button>
+              ? <span className="flex gap-3">
+                  <Link className="text-sm text-blue-600" to={`/s/${s.id}/setup`}>Configurar pelo manual</Link>
+                  <button className="text-sm text-red-600" onClick={() => archiveSeason(db, s.id)}>Arquivar</button>
+                </span>
               : <button className="text-sm text-blue-600" onClick={() => reopenSeason(db, s.id)}>Reabrir</button>}
           </li>
         ))}
