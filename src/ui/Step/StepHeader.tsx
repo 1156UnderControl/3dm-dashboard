@@ -45,9 +45,11 @@ export default function StepHeader({ sid, stepDef, state, groups, by, readOnly }
             onChange={(e) => patch({ deadline: e.target.value })} />
         </label>
         <label className="text-sm">Status
-          <select disabled={readOnly} value={status} className="mt-1 w-full rounded border px-2 py-1"
+          <select disabled={readOnly || closed} value={status} className="mt-1 w-full rounded border px-2 py-1"
             onChange={(e) => patch({ status: e.target.value as StepStatus })}>
-            {(Object.keys(STATUS_LABEL) as StepStatus[]).map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+            {(Object.keys(STATUS_LABEL) as StepStatus[])
+              .filter((s) => s !== 'concluido' || closed)
+              .map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
           </select>
         </label>
       </div>
