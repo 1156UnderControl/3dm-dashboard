@@ -12,7 +12,7 @@ vi.mock('../../data/hooks', () => ({
   useItems: () => ({ data: skills, loading: false, error: null }),
 }))
 
-import { createItem, updateItem } from '../../data/items'
+import { createItem, deleteItem, updateItem } from '../../data/items'
 import { getStep } from '../../threedm/template'
 import type { Item } from '../../threedm/types'
 import PriorityBoard from './PriorityBoard'
@@ -44,8 +44,8 @@ describe('PriorityBoard', () => {
 
   it('places cards in columns, unclassified in Sem classificação', () => {
     renderBoard([mk({}), mk({ id: 'p2', data: { item: 'X', bucket: '' } })])
-    expect(within(screen.getByTestId('col-Precisamos')).getByText('Coletar FUEL')).toBeInTheDocument()
-    expect(within(screen.getByTestId('col-sem')).getByText('X')).toBeInTheDocument()
+    expect(within(screen.getByTestId('col-Precisamos')).getByDisplayValue('Coletar FUEL')).toBeInTheDocument()
+    expect(within(screen.getByTestId('col-sem')).getByDisplayValue('X')).toBeInTheDocument()
   })
 
   it('import skills does not duplicate existing items', async () => {
@@ -61,5 +61,42 @@ describe('PriorityBoard', () => {
     renderBoard([mk({ origin: 'ai', citation: 'm' })])
     expect(screen.getByText('IA')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Aceitar' })).toBeInTheDocument()
+  })
+
+  it('editing a card title and blurring calls updateItem once with the new title', async () => {
+    const item = mk({})
+    renderBoard([item])
+    const input = screen.getByLabelText('Item')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'novo')
+    await userEvent.tab()
+    expect(updateItem).toHaveBeenCalledTimes(1)
+    expect(updateItem).toHaveBeenCalledWith({ fake: true }, 's1', 'me@x', item, { item: 'novo' })
+  })
+
+  it('blur without change does not save', async () => {
+    renderBoard([mk({})])
+    await userEvent.click(screen.getByLabelText('Meta'))
+    await userEvent.tab()
+    expect(updateItem).not.toHaveBeenCalled()
+  })
+
+  it('human card shows Excluir and Histórico; AI card has no Excluir', async () => {
+    const onHistory = vi.fn()
+    const human = mk({})
+    const { unmount } = render(<PriorityBoard sid="s1" stepDef={stepDef} kindDef={kindDef} items={[human]} readOnly={false} by="me@x" presence={{}} onHistory={onHistory} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Excluir' }))
+    expect(deleteItem).toHaveBeenCalledWith({ fake: true }, 's1', 'me@x', human)
+    await userEvent.click(screen.getByRole('button', { name: 'Histórico' }))
+    expect(onHistory).toHaveBeenCalledWith(human)
+    unmount()
+    renderBoard([mk({ origin: 'ai' })])
+    expect(screen.queryByRole('button', { name: 'Excluir' })).toBeNull()
+  })
+
+  it('archived (readOnly) cards are not editable', () => {
+    render(<PriorityBoard sid="s1" stepDef={stepDef} kindDef={kindDef} items={[mk({})]} readOnly by="me@x" presence={{}} />)
+    expect(screen.getByLabelText('Item')).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Excluir' })).toBeNull()
   })
 })

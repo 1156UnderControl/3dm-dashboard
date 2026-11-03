@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { db } from '../../firebase'
-import { acceptItem, createItem, rejectItem, updateItem } from '../../data/items'
+import { acceptItem, createItem, deleteItem, rejectItem, updateItem } from '../../data/items'
 import { useItems } from '../../data/hooks'
 import type { ItemTableProps } from './ItemTable'
 import AiBadge from './AiBadge'
@@ -8,17 +8,47 @@ import AiBadge from './AiBadge'
 const BUCKETS = ['Precisamos', 'Queremos', 'Seria bom', 'Ignorar']
 const norm = (s: unknown) => String(s ?? '').trim().toLowerCase()
 
-function Card({ item, sid, by, readOnly }: { item: ItemTableProps['items'][number]; sid: string; by: string; readOnly: boolean }) {
+type CardItem = ItemTableProps['items'][number]
+
+/** Text field that keeps a local draft and saves on blur only when the value changed. */
+function CardField({ item, field, label, multiline, disabled, onSave }: {
+  item: CardItem; field: string; label: string; multiline?: boolean; disabled: boolean
+  onSave: (patch: Record<string, unknown>) => void
+}) {
+  const stored = item.data[field]
+  const storedStr = stored === undefined || stored === null ? '' : String(stored)
+  const [draft, setDraft] = useState<string | null>(null)
+  const commit = () => {
+    if (draft !== null && draft !== storedStr) onSave({ [field]: draft })
+    setDraft(null)
+  }
+  const cls = 'w-full rounded border border-slate-200 px-1 text-xs disabled:bg-transparent'
+  return multiline ? (
+    <textarea aria-label={label} placeholder={label} disabled={disabled} rows={2} value={draft ?? storedStr} className={cls}
+      onChange={(e) => setDraft(e.target.value)} onBlur={commit} />
+  ) : (
+    <input aria-label={label} placeholder={label} disabled={disabled} value={draft ?? storedStr} className={cls}
+      onChange={(e) => setDraft(e.target.value)} onBlur={commit} />
+  )
+}
+
+function Card({ item, sid, by, readOnly, onHistory }: {
+  item: CardItem; sid: string; by: string; readOnly: boolean; onHistory?: (item: CardItem) => void
+}) {
   const [target, setTarget] = useState<string | null>(null)
   const [motivo, setMotivo] = useState('')
   const pending = item.origin === 'ai' && item.state === 'active'
+  const save = (patch: Record<string, unknown>) => void updateItem(db, sid, by, item, patch)
   return (
     <div data-testid="priority-card" className="mb-2 rounded border bg-white p-2 text-sm shadow-sm">
       <div className="flex items-start justify-between gap-1">
-        <span>{String(item.data.item ?? '') || <em className="text-slate-400">sem título</em>}</span>
+        <CardField item={item} field="item" label="Item" disabled={readOnly} onSave={save} />
         {item.origin !== 'human' && <AiBadge citation={item.citation} />}
       </div>
-      {typeof item.data.meta === 'string' && item.data.meta && <div className="text-xs text-slate-500">Meta: {item.data.meta}</div>}
+      <div className="mt-1 flex flex-col gap-1">
+        <CardField item={item} field="meta" label="Meta" disabled={readOnly} onSave={save} />
+        <CardField item={item} field="motivo" label="Motivo" multiline disabled={readOnly} onSave={save} />
+      </div>
       {!readOnly && pending && (
         <span className="flex gap-1">
           <button aria-label="Aceitar" title="Aceitar" className="text-green-700" onClick={() => void acceptItem(db, sid, by, item)}>✓</button>
@@ -47,11 +77,19 @@ function Card({ item, sid, by, readOnly }: { item: ItemTableProps['items'][numbe
           </span>
         </div>
       )}
+      <div className="mt-1 flex gap-2">
+        {!readOnly && item.origin === 'human' && (
+          <button className="text-xs text-red-600" onClick={() => void deleteItem(db, sid, by, item)}>Excluir</button>
+        )}
+        {onHistory && (
+          <button className="text-xs text-slate-600" onClick={() => onHistory(item)}>Histórico</button>
+        )}
+      </div>
     </div>
   )
 }
 
-export default function PriorityBoard({ sid, stepDef, kindDef, items, readOnly, by }: ItemTableProps) {
+export default function PriorityBoard({ sid, stepDef, kindDef, items, readOnly, by, onHistory }: ItemTableProps) {
   const { data: skills } = useItems(sid, '1.4')
   const [importing, setImporting] = useState(false)
   const importRef = useRef(false)
@@ -91,7 +129,7 @@ export default function PriorityBoard({ sid, stepDef, kindDef, items, readOnly, 
           <div key={col.key} data-testid={`col-${col.key}`} className="rounded bg-slate-50 p-2">
             <h4 className="mb-2 text-sm font-medium">{col.title}</h4>
             {cards.filter((c) => col.match(String(c.data.bucket ?? ''))).map((c) => (
-              <Card key={c.id} item={c} sid={sid} by={by} readOnly={readOnly} />
+              <Card key={c.id} item={c} sid={sid} by={by} readOnly={readOnly} onHistory={onHistory} />
             ))}
           </div>
         ))}
