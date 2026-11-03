@@ -82,3 +82,12 @@ describe('askManual', () => {
     expect(r.answer).toBe('n3')
   })
 })
+
+describe('slug', () => {
+  test('non-latin question gives non-empty stable slug', async () => {
+    const { slug } = await import('./suggest')
+    expect(slug('这是什么？')).not.toBe('')
+    expect(slug('这是什么？')).toBe(slug('这是什么？'))
+    expect(slug('Posso tocar no HUB?')).toBe('posso-tocar-no-hub')
+  })
+})

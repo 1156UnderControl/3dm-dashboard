@@ -75,7 +75,7 @@ export default function StepPage() {
     <div>
       {readOnly && <div role="status" className="mb-3 rounded bg-amber-100 p-2 text-amber-900">Temporada arquivada</div>}
       <StepHeader sid={sid} stepDef={stepDef} state={stepStates.find((s) => s.stepId === stepDef.id)} groups={groups} by={by} readOnly={readOnly} />
-      {stepDef.id === '1.2' && <AskManual sid={sid} by={by} readOnly={readOnly} />}
+      {stepDef.id === '1.2' && <AskManual sid={sid} by={by} readOnly={readOnly} items={items} />}
       {stepDef.kinds.map((k) => {
         const view = renderKind(stepDef, k, props)
         return view && (

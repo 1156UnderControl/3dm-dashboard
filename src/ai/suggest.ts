@@ -29,8 +29,12 @@ export function suggestionSchema(kind: ItemKindDef) {
 }
 
 export function slug(text: string): string {
-  return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  const s = text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
+  if (s) return s
+  let h = 5381
+  for (const ch of text.trim().toLowerCase()) h = ((h * 33) ^ ch.codePointAt(0)!) >>> 0
+  return `q${h.toString(36)}`
 }
 
 export interface SuggestInput {

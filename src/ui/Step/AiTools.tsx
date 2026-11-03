@@ -5,6 +5,7 @@ import { useAppConfig } from '../../data/config'
 import { useSeason } from '../../data/hooks'
 import { createItem, createItems } from '../../data/items'
 import { useTeamKeys, resolveKey } from '../../ai/keys'
+import { dedupeByAiKey } from '../../ai/toItems'
 import { AiError, aiErrorMessage, getProvider } from '../../ai/provider'
 import { askManual, slug, suggestForStep } from '../../ai/suggest'
 import { pdfCache } from '../../ai/pdfCache'
@@ -64,19 +65,20 @@ export function SuggestBar({ sid, stepDef, kindDef, items, by, readOnly }: {
   )
 }
 
-export function AskManual({ sid, by, readOnly }: { sid: string; by: string; readOnly: boolean }) {
+export function AskManual({ sid, by, readOnly, items = [] }: { sid: string; by: string; readOnly: boolean; items?: Item[] }) {
   const { season, config, team, hasKey } = useAiGate(sid)
   const [question, setQuestion] = useState('')
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ q: string; answer: string; citacao: string } | null>(null)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
   if (readOnly || season?.status === 'archived') return null
   if (!season?.model) return <p className="mb-3 text-sm text-slate-500">Rode a configuração da temporada primeiro</p>
 
   async function ask() {
     if (!season?.model || !question.trim()) return
-    setBusy(true); setError(''); setResult(null); setSaved(false)
+    setBusy(true); setError(''); setResult(null); setSaved(false); setSaveMsg('')
     try {
       const provider = getProvider(config, team)
       const pdf = await pdfCache.get(sid).catch(() => null)
@@ -89,11 +91,17 @@ export function AskManual({ sid, by, readOnly }: { sid: string; by: string; read
 
   async function save() {
     if (!result) return
-    await createItem(db, sid, by, {
-      stepId: '1.2', kind: 'question', origin: 'ai', aiKey: `question:${slug(result.q)}`, citation: result.citacao,
+    const n = {
+      stepId: '1.2', kind: 'question', origin: 'ai' as const, aiKey: `question:${slug(result.q)}`, citation: result.citacao,
       data: { pergunta: result.q, resposta: result.answer, citacao: result.citacao },
-    })
-    setSaved(true)
+    }
+    if (dedupeByAiKey([n], items).length === 0) { setSaveMsg('Essa pergunta já foi salva'); return }
+    try {
+      await createItem(db, sid, by, n)
+      setSaved(true); setSaveMsg('')
+    } catch {
+      setSaveMsg('Não foi possível salvar a pergunta.')
+    }
   }
 
   return (
@@ -115,6 +123,7 @@ export function AskManual({ sid, by, readOnly }: { sid: string; by: string; read
           <button className="mt-2 rounded border px-3 py-1 disabled:opacity-50" disabled={saved} onClick={() => void save()}>
             {saved ? 'Salvo' : 'Salvar como pergunta'}
           </button>
+          {saveMsg && <p role="status" className="mt-1 text-slate-700">{saveMsg}</p>}
         </div>
       )}
     </section>
