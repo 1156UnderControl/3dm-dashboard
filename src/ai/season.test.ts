@@ -183,3 +183,15 @@ describe('extractSeason too-large retry', () => {
     expect(provider.generate).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('enum fields in the extraction schema', () => {
+  test('rules.categoria and prototypeDraft.fidelidade only accept template options', async () => {
+    const { SeasonExtraction } = await import('./seasonSchema')
+    const base = emptyExtraction()
+    expect(SeasonExtraction.safeParse({ ...base, rules: [rule('G1', 't')] }).success).toBe(true)
+    expect(SeasonExtraction.safeParse({ ...base, rules: [{ ...rule('G1', 't'), categoria: 'Campo' }] }).success).toBe(false)
+    const proto = { key: 'p', subsistema: 's', conceito: 'c', pergunta: 'q', fidelidade: 'Análise 2D' }
+    expect(SeasonExtraction.safeParse({ ...base, prototypeDraft: [proto] }).success).toBe(true)
+    expect(SeasonExtraction.safeParse({ ...base, prototypeDraft: [{ ...proto, fidelidade: 'Alta' }] }).success).toBe(false)
+  })
+})

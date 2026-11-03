@@ -92,4 +92,21 @@ describe('ItemTable', () => {
     expect(screen.queryByRole('button', { name: 'Aceitar' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Adicionar linha' })).toBeNull()
   })
+
+  it('enum cell keeps a stored value that is not among the options', () => {
+    renderTable([mk({ data: { regra: 'G1', categoria: 'Campo' } })])
+    const sel = screen.getByLabelText('Categoria') as HTMLSelectElement
+    expect(sel.value).toBe('Campo')
+    expect(within(sel).getByRole('option', { name: 'Campo' })).toBeInTheDocument()
+  })
+
+  it('link cells only render an href for http(s) URLs', () => {
+    const s15 = getStep('1.5')
+    const k = s15.kinds.find((x) => x.columns.some((c) => c.type === 'link'))!
+    const row = (id: string, link: string): Item => ({ ...mk({ id, stepId: '1.5', kind: k.kind }), data: { link } })
+    render(<ItemTable sid="s1" stepDef={s15} kindDef={k} items={[row('a', 'https://ex.com/x'), row('b', 'javascript:alert(1)'), row('c', 'HTTP://ex.com')]}
+      readOnly={false} by="me@x" presence={{}} />)
+    const links = screen.getAllByRole('link', { name: 'Abrir Link' })
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['https://ex.com/x', 'HTTP://ex.com'])
+  })
 })

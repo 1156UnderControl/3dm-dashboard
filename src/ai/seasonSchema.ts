@@ -1,9 +1,18 @@
 import { z } from 'zod'
+import { STEPS } from '../threedm/template'
 
 const s = z.string()
 
 export const PRIORITY_BUCKETS = ['Precisamos', 'Queremos', 'Seria bom', 'Ignorar'] as const
 export const FIDELIDADES = ['Análise 2D', 'Protótipo físico simples', 'Protótipo físico complexo'] as const
+
+/** Options of an enum column in the 3DM template (single source of truth for AI enum fields). */
+function templateOptions(kind: string, key: string): [string, ...string[]] {
+  const opts = STEPS.flatMap((st) => st.kinds).find((k) => k.kind === kind)?.columns.find((c) => c.key === key)?.options
+  if (!opts?.length) throw new Error(`template enum ${kind}.${key} has no options`)
+  return opts as [string, ...string[]]
+}
+export const RULE_CATEGORIAS = templateOptions('rule', 'categoria')
 
 export const SeasonExtraction = z.object({
   gameName: s,
@@ -12,13 +21,13 @@ export const SeasonExtraction = z.object({
   periods: z.array(z.object({ name: s, durationS: z.number() })),
   scoring: z.array(z.object({ key: s, acao: s, periodo: s, pontos: z.number(), observacao: s })),
   rps: z.array(z.object({ key: s, nome: s, requisito: s, dependeAlianca: z.boolean() })),
-  rules: z.array(z.object({ key: s.describe('ID da regra no manual, ex.: G403'), texto: s, porque: s, penalidade: s, categoria: s })),
+  rules: z.array(z.object({ key: s.describe('ID da regra no manual, ex.: G403'), texto: s, porque: s, penalidade: s, categoria: z.enum(RULE_CATEGORIAS) })),
   questions: z.array(z.object({ key: s, pergunta: s, resposta: s, citacao: s })),
   skills: z.array(z.object({ key: s, categoria: s, habilidade: s, kpis: z.array(s) })),
   autos: z.array(z.object({ key: s, nome: s, descricao: s, acoes: s })),
   history: z.array(z.object({ key: s, acao: s, jogoAno: s, roboReferencia: s, mecanismo: s, observacoes: s })),
   priorityDraft: z.array(z.object({ key: s, item: s, bucket: z.enum(PRIORITY_BUCKETS), motivo: s })),
-  prototypeDraft: z.array(z.object({ key: s, subsistema: s, conceito: s, pergunta: s, fidelidade: s })),
+  prototypeDraft: z.array(z.object({ key: s, subsistema: s, conceito: s, pergunta: s, fidelidade: z.enum(FIDELIDADES) })),
   archetypeDraft: z.array(z.object({ key: s, nome: s, habilidades: s, observacoes: s })),
 })
 export type SeasonExtraction = z.infer<typeof SeasonExtraction>

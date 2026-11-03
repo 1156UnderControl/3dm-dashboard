@@ -49,6 +49,7 @@ function Cell({ item, col, members, disabled, actions }: {
           onFocus={focus} onBlur={actions.onBlurField} onChange={(e) => save(e.target.value)}>
           <option value="">—</option>
           {col.options?.map((o) => <option key={o} value={o}>{o}</option>)}
+          {storedStr && !col.options?.includes(storedStr) && <option value={storedStr}>{storedStr}</option>}
         </select>
       )
     case 'person':
@@ -74,8 +75,8 @@ function Cell({ item, col, members, disabled, actions }: {
         <div className="flex items-center gap-1">
           <input aria-label={col.label} type={type} disabled={disabled} value={text} className={inputCls}
             onFocus={focus} onChange={(e) => setDraft(e.target.value)} onBlur={commit} />
-          {col.type === 'link' && storedStr && (
-            <a href={storedStr} target="_blank" rel="noreferrer" aria-label={`Abrir ${col.label}`} className="text-blue-600">↗</a>
+          {col.type === 'link' && /^https?:\/\//i.test(storedStr.trim()) && (
+            <a href={storedStr.trim()} target="_blank" rel="noreferrer" aria-label={`Abrir ${col.label}`} className="text-blue-600">↗</a>
           )}
         </div>
       )
