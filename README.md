@@ -49,7 +49,7 @@ No GitHub, em Settings > Secrets and variables > Actions, crie estes segredos:
 | `FIREBASE_PROJECT_ID` | ID do projeto (mesmo de `.firebaserc`) |
 | `FIREBASE_SERVICE_ACCOUNT` | JSON completo da conta de serviço (abaixo) |
 
-**Conta de serviço**: no Google Cloud Console (mesmo projeto) > IAM e administrador > Contas de serviço > criar conta, com os papéis **Firebase Hosting Admin**, **Firebase Rules Admin**, **Cloud Datastore Index Admin**, **Firebase Realtime Database Admin** e **Service Usage Consumer**. O primeiro deploy valida as permissões: se faltar algum papel, o passo correspondente do workflow falha com erro de permissão; adicione o papel indicado e rode de novo. Depois, em Chaves > Adicionar chave > JSON, e cole o conteúdo inteiro do arquivo no segredo `FIREBASE_SERVICE_ACCOUNT`. Apague o arquivo local depois.
+**Conta de serviço**: no Google Cloud Console (mesmo projeto) > IAM e administrador > Contas de serviço > criar conta, com os papéis **Firebase Hosting Admin**, **Firebase Rules Admin**, **Cloud Datastore Index Admin**, **Firebase Realtime Database Admin**, **Service Usage Consumer** e **Service Usage Viewer** (o deploy verifica se as APIs estão ativas). O primeiro deploy valida as permissões: se faltar algum papel, o passo correspondente do workflow falha com erro de permissão; adicione o papel indicado e rode de novo. Depois, em Chaves > Adicionar chave > JSON, e cole o conteúdo inteiro do arquivo no segredo `FIREBASE_SERVICE_ACCOUNT`. Apague o arquivo local depois.
 
 A cada push em `main`, o workflow `.github/workflows/deploy.yml` roda lint e testes, faz o build, publica as regras do Firestore, os índices e as regras do Realtime Database e, por último, o Hosting (assim o app novo nunca fica no ar com regras antigas).
 
