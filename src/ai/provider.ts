@@ -15,34 +15,8 @@ export interface AiRequest<T> {
 }
 export interface AiProvider { generate<T>(req: AiRequest<T>): Promise<T> }
 
-export type AiErrorCode = 'no-key' | 'invalid-key' | 'rate-limit' | 'invalid-output' | 'network'
-
-export class AiError extends Error {
-  code: AiErrorCode
-  constructor(code: AiErrorCode, message?: string) {
-    super(message ?? code)
-    this.name = 'AiError'
-    this.code = code
-  }
-}
-
-const MESSAGES: Record<AiErrorCode, string> = {
-  'no-key': 'Configure uma chave de IA em Configurações.',
-  'invalid-key': 'Chave inválida.',
-  'rate-limit': 'Limite de requisições atingido. Tente novamente em instantes.',
-  'invalid-output': 'A IA devolveu uma resposta inválida. Tente novamente.',
-  network: 'Falha de rede ao falar com a IA.',
-}
-export const aiErrorMessage = (code: AiErrorCode): string => MESSAGES[code]
-
-/** Maps an SDK/fetch failure to an AiError. Never includes request data (keys). */
-export function toAiError(e: unknown): AiError {
-  if (e instanceof AiError) return e
-  const status = (e as { status?: number } | null)?.status
-  if (status === 401 || status === 403) return new AiError('invalid-key')
-  if (status === 429) return new AiError('rate-limit')
-  return new AiError('network')
-}
+import { AiError } from './errors'
+export { AiError, aiErrorMessage, aiErrorText, toAiError, type AiErrorCode } from './errors'
 
 export function getProviderWithKey(config: AppConfig, key: string): AiProvider {
   return config.aiProvider === 'anthropic'

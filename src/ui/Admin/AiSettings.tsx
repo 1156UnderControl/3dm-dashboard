@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { z } from 'zod'
 import { useCurrentMember } from '../../auth/context'
 import { clearKey, getKey, keyHint, resolveKey, setKey, setTeamKey, useTeamKeys, type ProviderId } from '../../ai/keys'
-import { AiError, aiErrorMessage, getProviderWithKey } from '../../ai/provider'
+import { AiError, aiErrorMessage, aiErrorText, getProviderWithKey } from '../../ai/provider'
 import { DEFAULT_MODELS, setAppConfig, useAppConfig } from '../../data/config'
 import { db } from '../../firebase'
 
@@ -21,7 +21,7 @@ async function ping(provider: ProviderId, model: string, key: string | null): Pr
   } catch (e) {
     // invalid-output (e.g. reasoning model ran out of tokens) means the key itself was accepted.
     if (e instanceof AiError && e.code === 'invalid-output') return 'Chave funcionando.'
-    return e instanceof AiError ? aiErrorMessage(e.code) : aiErrorMessage('network')
+    return e instanceof AiError ? aiErrorText(e) : aiErrorMessage('network')
   }
 }
 

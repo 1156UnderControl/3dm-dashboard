@@ -6,13 +6,13 @@ import { useSeason } from '../../data/hooks'
 import { createItem, createItems } from '../../data/items'
 import { useTeamKeys, resolveKey } from '../../ai/keys'
 import { dedupeAiItems, normalizeKey } from '../../ai/toItems'
-import { AiError, aiErrorMessage, getProvider } from '../../ai/provider'
+import { AiError, aiErrorText, getProvider } from '../../ai/provider'
 import { askManual, suggestForStep } from '../../ai/suggest'
 import { pdfCache } from '../../ai/pdfCache'
 import type { ItemKindDef, StepDef } from '../../threedm/template'
 import type { Item } from '../../threedm/types'
 
-const errText = (e: unknown, fallback: string) => (e instanceof AiError ? aiErrorMessage(e.code) : fallback)
+const errText = (e: unknown, fallback: string) => (e instanceof AiError ? aiErrorText(e) : fallback)
 
 function useAiGate(sid: string) {
   const { data: season } = useSeason(sid)

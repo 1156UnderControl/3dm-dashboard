@@ -3,6 +3,7 @@ import { PDFDocument } from 'pdf-lib'
 import { emptyExtraction, type SeasonExtraction } from './seasonSchema'
 import { extractSeason, mergeExtractions, splitPdf } from './extract'
 import { dedupeAiItems, mergeExtraction, normalizeKey } from './toItems'
+import { AiError } from './errors'
 import type { AiProvider, AiRequest } from './provider'
 import type { Item } from '../threedm/types'
 
@@ -149,5 +150,36 @@ describe('key normalization and dedupe (re-running setup)', () => {
     expect(text(1)).toContain('G403'); expect(text(1)).toContain('reutilize')
     expect(text(2)).toContain('coletar-fuel'); expect(text(2)).not.toContain('G403')
     expect(text(3)).toContain('fuel-rapido')
+  })
+})
+
+describe('extractSeason too-large retry', () => {
+  test('413 on a chunk retries that section as two halves', async () => {
+    const pages: number[] = []
+    let failed = false
+    const provider: AiProvider = {
+      generate: vi.fn(async <T,>(req: AiRequest<T>) => {
+        const pdf = req.content.find((c) => c.type === 'pdf')
+        if (pdf && pdf.type === 'pdf') {
+          const n = await pageCount(Uint8Array.from(atob(pdf.base64), (c) => c.charCodeAt(0)))
+          pages.push(n)
+          if (!failed) { failed = true; throw new AiError('request', 'prompt is too long', 413) }
+        }
+        const out: Record<string, unknown> = {}
+        for (const k of Object.keys((req.schema as unknown as { shape: Record<string, unknown> }).shape)) out[k] = k === 'gameName' ? 'G' : []
+        if ('scoring' in out) out.scoring = [{ key: `s${pages.length}`, acao: `a${pages.length}`, periodo: 'teleop', pontos: 1, observacao: '' }]
+        return out as T
+      }) as AiProvider['generate'],
+    }
+    const res = await extractSeason(provider, await makePdf(10))
+    expect(pages).toEqual([10, 5, 5, 10, 10])
+    expect(res.scoring).toHaveLength(2)
+    expect(res.gameName).toBe('G')
+  })
+
+  test('non-size request errors are not retried', async () => {
+    const provider: AiProvider = { generate: vi.fn(async () => { throw new AiError('request', 'model not found', 404) }) as AiProvider['generate'] }
+    await expect(extractSeason(provider, await makePdf(4))).rejects.toMatchObject({ code: 'request' })
+    expect(provider.generate).toHaveBeenCalledTimes(1)
   })
 })

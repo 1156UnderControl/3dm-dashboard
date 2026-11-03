@@ -19,7 +19,7 @@ vi.mock('firebase/firestore', async (orig) => ({
 
 vi.mock('../firebase', () => ({ db: {} }))
 import { clearKey, getKey, resolveKey, setKey, setTeamKey } from './keys'
-import { AiError, aiErrorMessage, getProvider } from './provider'
+import { AiError, aiErrorMessage, aiErrorText, getProvider, toAiError } from './provider'
 
 const schema = z.object({ n: z.number() })
 const cfgA = { aiProvider: 'anthropic', model: 'claude-sonnet-5-5' } as const
@@ -115,5 +115,31 @@ describe('openai', () => {
     await expect(getProvider(cfgO, {}).generate(req)).rejects.toMatchObject({ code: 'invalid-key' })
     openaiCreate.mockResolvedValueOnce({ status: 'completed', output_text: 'not json' })
     await expect(getProvider(cfgO, {}).generate(req)).rejects.toMatchObject({ code: 'invalid-output' })
+  })
+})
+
+describe('toAiError', () => {
+  test('404 maps to request with the provider message only (sanitized, ≤200 chars)', () => {
+    const e = toAiError(Object.assign(new Error('404 {...}'), { status: 404, error: { type: 'error', error: { type: 'not_found_error', message: 'model: claude-x not found' } } }))
+    expect(e.code).toBe('request')
+    expect(e.status).toBe(404)
+    expect(e.message).toBe('model: claude-x not found')
+    expect(aiErrorText(e)).toBe('A IA recusou o pedido: model: claude-x not found')
+    const long = toAiError(Object.assign(new Error('x'), { status: 400, error: { message: `bad sk-ant-api03-SECRETKEY ${'a'.repeat(500)}` } }))
+    expect(long.code).toBe('request')
+    expect(long.message.length).toBeLessThanOrEqual(200)
+    expect(long.message).not.toContain('SECRETKEY')
+  })
+  test('5xx maps to server; 413/422 to request', () => {
+    expect(toAiError(Object.assign(new Error('x'), { status: 500 })).code).toBe('server')
+    expect(toAiError(Object.assign(new Error('x'), { status: 529 })).code).toBe('server')
+    expect(aiErrorMessage('server')).toBe('Serviço de IA indisponível, tente de novo')
+    expect(toAiError(Object.assign(new Error('request too large'), { status: 413 })).code).toBe('request')
+    expect(toAiError(Object.assign(new Error('x'), { status: 422 })).code).toBe('request')
+  })
+  test('aiErrorText shows custom messages (e.g. truncation) and falls back to the code message', () => {
+    expect(aiErrorText(new AiError('invalid-output', 'Resposta truncada (x)'))).toBe('Resposta truncada (x)')
+    expect(aiErrorText(new AiError('network'))).toBe(aiErrorMessage('network'))
+    expect(aiErrorText(new AiError('request'))).toBe('A IA recusou o pedido.')
   })
 })

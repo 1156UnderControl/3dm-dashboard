@@ -6,7 +6,7 @@ import { useCurrentMember } from '../../auth/context'
 import { useSeason } from '../../data/hooks'
 import { useAppConfig } from '../../data/config'
 import { useTeamKeys } from '../../ai/keys'
-import { AiError, aiErrorMessage, getProvider } from '../../ai/provider'
+import { AiError, aiErrorText, getProvider } from '../../ai/provider'
 import { extractSeason } from '../../ai/extract'
 import { pdfCache } from '../../ai/pdfCache'
 import { countByStep, dedupeAiItems, mergeExtraction } from '../../ai/toItems'
@@ -70,7 +70,7 @@ export default function SeasonSetup() {
       setPhase('preview')
     } catch (e) {
       setPhase('idle')
-      setError(e instanceof AiError ? aiErrorMessage(e.code) : 'Não foi possível ler o manual.')
+      setError(e instanceof AiError ? aiErrorText(e) : 'Não foi possível ler o manual.')
     }
   }
 

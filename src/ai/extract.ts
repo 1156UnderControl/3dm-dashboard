@@ -1,5 +1,6 @@
 import { PDFDocument } from 'pdf-lib'
 import type { z } from 'zod'
+import { AiError } from './errors'
 import type { AiContent, AiProvider } from './provider'
 import {
   ARRAY_FIELDS, emptyExtraction, type ArrayField, SEASON_SYSTEM_PROMPT, SectionA, SectionB, SectionC, SectionD, type SeasonExtraction,
@@ -68,6 +69,16 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(bin)
 }
 
+const isTooLarge = (e: unknown): boolean =>
+  e instanceof AiError && e.code === 'request' && (e.status === 413 || /too (long|large)|request_too_large/i.test(e.message))
+
+/** Splits a chunk into two halves of at most 45 pages; [] when it has a single page. */
+async function halvePdf(bytes: Uint8Array): Promise<Uint8Array[]> {
+  const n = (await PDFDocument.load(bytes, { ignoreEncryption: true })).getPageCount()
+  if (n < 2) return []
+  return splitPdf(bytes, Math.min(45, Math.ceil(n / 2)))
+}
+
 const SECTIONS: { name: string; schema: z.ZodType<Partial<SeasonExtraction>>; ask: string; kinds: string[] }[] = [
   { name: 'season_overview', schema: SectionA, ask: 'Extraia: nome do jogo (gameName), peças de jogo (gamePieces), zonas do campo (zones), períodos da partida com duração em segundos (periods), ações que pontuam com período e pontos (scoring) e ranking points com requisito e se dependem da aliança (rps).', kinds: ['scoring', 'rp'] },
   { name: 'season_rules', schema: SectionB, ask: 'Extraia: regras relevantes para estratégia e design (rules: key = ID da regra, texto resumido, por que importa, penalidade, categoria Gameplay/Robô/Bumper/Outros) e perguntas que a equipe deveria se fazer com resposta e citação do manual (questions).', kinds: ['rule', 'question'] },
@@ -103,14 +114,28 @@ export async function extractSeason(
   onProgress?.(done, total)
   const parts: SeasonExtraction[] = []
   for (const [i, chunk] of chunks.entries()) {
-    const pdfContent: AiContent = { type: 'pdf', base64: toBase64(chunk) }
     const part: SeasonExtraction = emptyExtraction()
     for (const sec of SECTIONS) {
-      const res = await provider.generate({
+      const ask = (bytes: Uint8Array, label: string) => provider.generate({
         system: SEASON_SYSTEM_PROMPT,
-        content: [pdfContent, { type: 'text', text: `Trecho ${i + 1} de ${chunks.length} do manual. ${sec.ask}${existingKeysText(existingKeys, sec.kinds)}` }],
+        content: [{ type: 'pdf', base64: toBase64(bytes) } satisfies AiContent,
+          { type: 'text', text: `${label} ${sec.ask}${existingKeysText(existingKeys, sec.kinds)}` }],
         schema: sec.schema, schemaName: sec.name, maxTokens: 16000,
       })
+      const label = `Trecho ${i + 1} de ${chunks.length} do manual.`
+      let res: Partial<SeasonExtraction>
+      try {
+        res = await ask(chunk, label)
+      } catch (e) {
+        // Too large for the provider: retry this chunk once, split in halves (≤45 pages each).
+        const halves = isTooLarge(e) ? await halvePdf(chunk) : []
+        if (halves.length < 2) throw e
+        const results: Partial<SeasonExtraction>[] = []
+        for (const [j, h] of halves.entries()) results.push(await ask(h, `${label} (parte ${j + 1} de ${halves.length})`))
+        const m = mergeExtractions(results.map((r) => ({ ...emptyExtraction(), ...r })))
+        const keys = new Set(results.flatMap((r) => Object.keys(r)))
+        res = Object.fromEntries([...keys].map((k) => [k, m[k as keyof SeasonExtraction]]))
+      }
       Object.assign(part, res)
       onProgress?.(++done, total)
     }

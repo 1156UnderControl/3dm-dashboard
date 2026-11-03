@@ -91,6 +91,14 @@ describe('SeasonSetup', () => {
     expect(h.updateDoc).not.toHaveBeenCalled()
   })
 
+  test('AiError with its own message (truncation) shows that message', async () => {
+    h.extract.mockRejectedValue(new AiError('invalid-output', 'Resposta truncada (max_tokens atingido). Tente com um trecho menor.'))
+    renderPage()
+    pick()
+    fireEvent.click(await screen.findByText('Ler manual com IA'))
+    expect(await screen.findByText(/Resposta truncada/)).toBeInTheDocument()
+  })
+
   test('archived season is read-only', () => {
     h.season.status = 'archived'
     renderPage()
