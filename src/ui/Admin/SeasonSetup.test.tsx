@@ -39,7 +39,7 @@ const pick = () => {
   fireEvent.change(screen.getByLabelText('Manual do jogo (PDF)'), { target: { files: [file] } })
 }
 
-beforeEach(() => { vi.clearAllMocks(); h.season.status = 'active' })
+beforeEach(() => { vi.clearAllMocks(); h.season.status = 'active'; h.getDocs.mockImplementation(async () => ({ docs: [] })) })
 
 describe('SeasonSetup', () => {
   test('extracts, previews counts per step and writes items + season model', async () => {
@@ -56,6 +56,28 @@ describe('SeasonSetup', () => {
     expect(await screen.findByText('1 itens adicionados ao 3DM.')).toBeInTheDocument()
     expect(h.createItems).toHaveBeenCalledWith({}, 's26', 'a@b.c', [expect.objectContaining({ aiKey: 'rule:G403', origin: 'ai' })])
     expect(h.updateDoc).toHaveBeenCalledWith({}, { model: expect.objectContaining({ gameName: 'REBUILT' }) })
+  })
+
+  test('retry after a partial save failure re-dedupes and writes only missing items', async () => {
+    const r = (key: string) => ({ key, texto: 't', porque: 'p', penalidade: 'x', categoria: 'Gameplay' })
+    h.extract.mockResolvedValue({ ...emptyExtraction(), gameName: 'REBUILT', rules: [r('G403'), r('G407'), r('R103')] })
+    const existing: { id: string; data: () => Record<string, unknown> }[] = []
+    h.getDocs.mockImplementation(async () => ({ docs: [...existing] }))
+    h.createItems.mockImplementationOnce(async () => {
+      existing.push({ id: 'a', data: () => ({ aiKey: 'rule:G403' }) }) // first batch committed, then failure
+      throw new Error('network')
+    })
+    renderPage()
+    pick()
+    fireEvent.click(await screen.findByText('Ler manual com IA'))
+    fireEvent.click(await screen.findByText('Adicionar ao 3DM'))
+    expect(await screen.findByText(/Falha ao salvar/)).toBeInTheDocument()
+    expect(h.updateDoc).toHaveBeenCalledTimes(1) // model written first
+    existing.push({ id: 'b', data: () => ({ aiKey: 'rule:G407' }) }) // another admin wrote meanwhile
+    fireEvent.click(screen.getByText('Adicionar ao 3DM'))
+    expect(await screen.findByText('1 itens adicionados ao 3DM.')).toBeInTheDocument()
+    expect(h.createItems).toHaveBeenCalledTimes(2)
+    expect((h.createItems.mock.calls[1][3] as { aiKey: string }[]).map((i) => i.aiKey)).toEqual(['rule:R103'])
   })
 
   test('AiError shows message and writes nothing', async () => {
