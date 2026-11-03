@@ -72,7 +72,7 @@ export default function DecisionMatrix(props: Props) {
     else await createItem(db, sid, by, { stepId: stepDef.id, kind: 'choice', data })
     setChosen(null); setJust(null)
   }
-  const useDefaults = async () => {
+  const seedDefaults = async () => {
     for (const [atributo, peso] of DEFAULT_ATTRS) await createItem(db, sid, by, { stepId: stepDef.id, kind: 'attribute', data: { atributo, peso } })
   }
 
@@ -107,7 +107,7 @@ export default function DecisionMatrix(props: Props) {
 
       <ItemTable {...props} kindDef={stepDef.kinds.find((k) => k.kind === 'attribute')!} />
       {!readOnly && attrItems.length === 0 && (
-        <button className="mb-4 rounded border px-3 py-1 text-sm" onClick={() => void useDefaults()}>Usar atributos padrão</button>
+        <button className="mb-4 rounded border px-3 py-1 text-sm" onClick={() => void seedDefaults()}>Usar atributos padrão</button>
       )}
 
       <section className="mb-6">
