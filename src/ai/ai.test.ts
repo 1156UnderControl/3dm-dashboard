@@ -53,7 +53,7 @@ describe('keys', () => {
   })
   test('key is never passed to firestore (personal flows)', async () => {
     setKey('anthropic', 'sk-secret-personal'); getKey('anthropic'); resolveKey('anthropic', {})
-    anthropicCreate.mockResolvedValue({ stop_reason: 'tool_use', content: [{ type: 'tool_use', input: { n: 1 } }] })
+    anthropicCreate.mockResolvedValue({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"n":1}' }] })
     await getProvider(cfgA, {}).generate(req)
     clearKey('anthropic')
     for (const f of [fs.setDoc, fs.updateDoc, fs.addDoc, fs.batchSet]) {
@@ -65,15 +65,14 @@ describe('keys', () => {
 
 describe('anthropic', () => {
   beforeEach(() => setKey('anthropic', 'k'))
-  test('forces the schema tool and sends pdf as document block', async () => {
-    anthropicCreate.mockResolvedValue({ stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'out', input: { n: 7 } }] })
+  test('asks for structured JSON output (no forced tool) and sends pdf as document block', async () => {
+    anthropicCreate.mockResolvedValue({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"n":7}' }] })
     const out = await getProvider(cfgA, {}).generate(req)
     expect(out).toEqual({ n: 7 })
     const arg = anthropicCreate.mock.calls[0][0]
-    expect(arg.tool_choice).toEqual({ type: 'tool', name: 'out' })
-    expect(arg.tools).toHaveLength(1); expect(arg.tools[0].name).toBe('out')
-    expect(arg.tools[0].input_schema.$schema).toBeUndefined()
-    expect(arg.tools[0].input_schema.properties.n).toBeDefined()
+    expect(arg.tool_choice).toBeUndefined(); expect(arg.tools).toBeUndefined()
+    expect(arg.output_config.format.type).toBe('json_schema')
+    expect(arg.output_config.format.schema.properties.n).toBeDefined()
     expect(arg.max_tokens).toBe(16000); expect(arg.model).toBe('claude-sonnet-5-5')
     expect(arg.messages[0].content[0]).toEqual({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'QUJD' } })
     expect(arg.messages[0].content[1]).toEqual({ type: 'text', text: 'hi' })
@@ -89,11 +88,17 @@ describe('anthropic', () => {
     await expect(getProvider(cfgA, {}).generate(req)).rejects.toMatchObject({ code: 'network' })
   })
   test('rejects invalid extraction without writing', async () => {
-    anthropicCreate.mockResolvedValue({ stop_reason: 'tool_use', content: [{ type: 'tool_use', input: { n: 'nope' } }] })
+    anthropicCreate.mockResolvedValue({ stop_reason: 'end_turn', content: [{ type: 'text', text: '{"n":"nope"}' }] })
     const p = getProvider(cfgA, {}).generate(req)
     await expect(p).rejects.toBeInstanceOf(AiError)
     await expect(p).rejects.toMatchObject({ code: 'invalid-output' })
     expect(fs.setDoc).not.toHaveBeenCalled(); expect(fs.commit).not.toHaveBeenCalled()
+  })
+  test('refusal and non-JSON text are invalid output', async () => {
+    anthropicCreate.mockResolvedValueOnce({ stop_reason: 'refusal', content: [] })
+    await expect(getProvider(cfgA, {}).generate(req)).rejects.toMatchObject({ code: 'invalid-output' })
+    anthropicCreate.mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'not json' }] })
+    await expect(getProvider(cfgA, {}).generate(req)).rejects.toMatchObject({ code: 'invalid-output' })
   })
   test('max_tokens stop is reported as truncation', async () => {
     anthropicCreate.mockResolvedValue({ stop_reason: 'max_tokens', content: [] })
