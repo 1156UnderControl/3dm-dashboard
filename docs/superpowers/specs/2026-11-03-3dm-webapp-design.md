@@ -33,7 +33,7 @@ Success: at kickoff 2027 (early January), groups work in parallel in the app acr
 - Season-specific content hardcoded in the app.
 - AI output silently becoming "the decision" — anything the AI produced must stay visibly AI until a human accepts/edits it.
 - Stages blocked/gated so groups can't move in parallel.
-- An API key reachable from the browser.
+- An AI key readable by anyone outside the 1156 allowlist.
 
 ## 3. Users and access
 
@@ -77,7 +77,7 @@ Mirrors `Analise 3DM 1156.xlsx` and the FIEMG 2026 deck. Each step has: descript
 
 **Provider**: Anthropic Claude by default (reads PDFs natively), OpenAI as alternative; chosen by admin in settings. Use the latest capable models (e.g. `claude-sonnet-5-5` for manual processing; configurable).
 
-**Key handling** (user decision): **bring-your-own-key in the browser.** A user pastes an Anthropic or OpenAI key in Settings; it is saved only in that browser's `localStorage` (never written to Firestore, never logged, never sent anywhere except the provider). The browser calls the provider directly (Anthropic: `anthropic-dangerous-direct-browser-access` header; OpenAI: browser mode). Members without a key can still edit everything; AI buttons show "configure uma chave" instead. "Remover chave" button in Settings. Accepted risk: anyone with access to that browser/profile, or an XSS bug, can read the key — so recommend a key with a low spending limit, and keep third-party scripts out of the app.
+**Key handling** (user decision): **bring-your-own-key in the browser.** A user pastes an Anthropic or OpenAI key in Settings; it is saved only in that browser's `localStorage` (never written to Firestore, never logged, never sent anywhere except the provider). The browser calls the provider directly (Anthropic: `anthropic-dangerous-direct-browser-access` header; OpenAI: browser mode). **Team master key** (user decision): an admin can also save a shared "chave da equipe" in Firestore (`secrets/ai`), readable by any allowlisted member and writable only by admins, so everyone can use the AI without their own key. A personal key in `localStorage` takes precedence over the team key. Accepted risk: since there is no server, any allowlisted member can technically read the team key from their browser; admins can rotate/remove it at any time. Members with neither key can still edit everything; AI buttons show "configure uma chave" instead. "Remover chave" button in Settings. Accepted risk: anyone with access to that browser/profile, or an XSS bug, can read the key — so recommend a key with a low spending limit, and keep third-party scripts out of the app.
 
 **Season setup flow**
 1. Admin creates a season (name, year) and uploads the game manual PDF (plus optionally team updates later).
