@@ -2,25 +2,25 @@ import { useState } from 'react'
 import { z } from 'zod'
 import { useCurrentMember } from '../../auth/context'
 import { clearKey, getKey, keyHint, resolveKey, setKey, setTeamKey, useTeamKeys, type ProviderId } from '../../ai/keys'
-import { AiError, aiErrorMessage, getProvider } from '../../ai/provider'
+import { AiError, aiErrorMessage, getProviderWithKey } from '../../ai/provider'
 import { DEFAULT_MODELS, setAppConfig, useAppConfig } from '../../data/config'
 import { db } from '../../firebase'
 
 const PROVIDER_LABEL: Record<ProviderId, string> = { anthropic: 'Anthropic', openai: 'OpenAI' }
 const pingSchema = z.object({ ok: z.boolean() })
 
-async function ping(provider: ProviderId, model: string, personal: string | null, team: string | null): Promise<string> {
+async function ping(provider: ProviderId, model: string, key: string | null): Promise<string> {
+  if (!key) return aiErrorMessage('no-key')
   try {
-    // Test exactly the key the user is looking at: personal first, else team.
-    const keys = personal ? {} : { [provider]: team ?? undefined }
-    const p = getProvider({ aiProvider: provider, model }, keys)
-    await p.generate({
+    await getProviderWithKey({ aiProvider: provider, model }, key).generate({
       system: 'Responda chamando a ferramenta com ok=true.',
       content: [{ type: 'text', text: 'ping' }],
-      schema: pingSchema, schemaName: 'ping', maxTokens: 64,
+      schema: pingSchema, schemaName: 'ping', maxTokens: 1024,
     })
     return 'Chave funcionando.'
   } catch (e) {
+    // invalid-output (e.g. reasoning model ran out of tokens) means the key itself was accepted.
+    if (e instanceof AiError && e.code === 'invalid-output') return 'Chave funcionando.'
     return e instanceof AiError ? aiErrorMessage(e.code) : aiErrorMessage('network')
   }
 }
@@ -80,7 +80,7 @@ export default function AiSettings() {
         </div>
         <div className="flex gap-2">
           <button className="rounded border px-3 py-1 disabled:opacity-50" disabled={!active}
-            onClick={async () => { setMsg('Testando…'); setMsg(await ping(p, config.model, personal, team[p] ?? null)) }}>Testar chave</button>
+            onClick={async () => { setMsg('Testando…'); setMsg(await ping(p, config.model, personal ?? team[p] ?? null)) }}>Testar chave</button>
           <button className="rounded border px-3 py-1 disabled:opacity-50" disabled={!personal} onClick={removePersonal}>Remover chave</button>
         </div>
         {msg && <p role="status" className="text-sm">{msg}</p>}
@@ -99,7 +99,7 @@ export default function AiSettings() {
           </div>
           <div className="flex gap-2">
             <button className="rounded border px-3 py-1 disabled:opacity-50" disabled={!team[p]}
-              onClick={async () => { setTeamMsg('Testando…'); setTeamMsg(await ping(p, config.model, null, team[p] ?? null)) }}>Testar chave da equipe</button>
+              onClick={async () => { setTeamMsg('Testando…'); setTeamMsg(await ping(p, config.model, team[p] ?? null)) }}>Testar chave da equipe</button>
             <button className="rounded border px-3 py-1 disabled:opacity-50" disabled={!team[p]}
               onClick={async () => { await setTeamKey(db, by, p, null); setTeamMsg('') }}>Remover chave da equipe</button>
           </div>

@@ -44,10 +44,14 @@ export function toAiError(e: unknown): AiError {
   return new AiError('network')
 }
 
+export function getProviderWithKey(config: AppConfig, key: string): AiProvider {
+  return config.aiProvider === 'anthropic'
+    ? new AnthropicProvider(key, config.model)
+    : new OpenAiProvider(key, config.model)
+}
+
 export function getProvider(config: AppConfig, team: TeamKeys): AiProvider {
   const r = resolveKey(config.aiProvider, team)
   if (!r) throw new AiError('no-key')
-  return config.aiProvider === 'anthropic'
-    ? new AnthropicProvider(r.key, config.model)
-    : new OpenAiProvider(r.key, config.model)
+  return getProviderWithKey(config, r.key)
 }

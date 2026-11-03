@@ -2,18 +2,18 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { Ctx } from '../../auth/context'
 
-const h = vi.hoisted(() => ({ team: {} as Record<string, string>, setTeamKey: vi.fn(async () => {}), generate: vi.fn(async () => ({ ok: true })) }))
+const h = vi.hoisted(() => ({ team: {} as Record<string, string>, setTeamKey: vi.fn(async () => {}), generate: vi.fn(async () => ({ ok: true })), withKey: vi.fn() }))
 vi.mock('../../firebase', () => ({ db: {} }))
 vi.mock('../../data/config', async (orig) => ({ ...(await orig<typeof import('../../data/config')>()), useAppConfig: () => ({ aiProvider: 'anthropic', model: 'claude-sonnet-5-5' }), setAppConfig: vi.fn() }))
 vi.mock('../../ai/keys', async (orig) => ({ ...(await orig<typeof import('../../ai/keys')>()), useTeamKeys: () => h.team, setTeamKey: h.setTeamKey }))
-vi.mock('../../ai/provider', async (orig) => ({ ...(await orig<typeof import('../../ai/provider')>()), getProvider: () => ({ generate: h.generate }) }))
+vi.mock('../../ai/provider', async (orig) => ({ ...(await orig<typeof import('../../ai/provider')>()), getProviderWithKey: (...a: unknown[]) => h.withKey(...a) }))
 
 import AiSettings from './AiSettings'
 
 const renderAs = (role: 'admin' | 'member') => render(
   <Ctx.Provider value={{ user: { email: 'a@b.c' } as never, member: { email: 'a@b.c', role }, loading: false }}><AiSettings /></Ctx.Provider>)
 
-beforeEach(() => { localStorage.clear(); h.team = {}; vi.clearAllMocks() })
+beforeEach(() => { localStorage.clear(); h.team = {}; vi.clearAllMocks(); h.withKey.mockImplementation(() => ({ generate: h.generate })) })
 
 describe('AiSettings', () => {
   test('saves personal key, never echoes it, shows last 4', () => {
@@ -43,5 +43,22 @@ describe('AiSettings', () => {
     fireEvent.change(screen.getByLabelText('Chave da equipe'), { target: { value: 'new-key' } })
     fireEvent.click(screen.getByText('Salvar chave da equipe'))
     expect(h.setTeamKey).toHaveBeenCalledWith({}, 'a@b.c', 'anthropic', 'new-key')
+  })
+  test('team test uses the team key even when a personal key exists', async () => {
+    localStorage.setItem('3dm.ai.key.anthropic', 'sk-personal')
+    h.team = { anthropic: 'team-bad' }
+    h.withKey.mockImplementation((_c: unknown, key: string) => ({
+      generate: async () => { if (key === 'team-bad') { const { AiError } = await import('../../ai/provider'); throw new AiError('invalid-key') } return { ok: true } },
+    }))
+    renderAs('admin')
+    fireEvent.click(screen.getByText('Testar chave da equipe'))
+    expect(await screen.findByText('Chave inválida.')).toBeInTheDocument()
+  })
+  test('invalid-output during ping counts as key accepted', async () => {
+    localStorage.setItem('3dm.ai.key.anthropic', 'sk-personal')
+    h.generate.mockImplementationOnce(async () => { const { AiError } = await import('../../ai/provider'); throw new AiError('invalid-output') })
+    renderAs('member')
+    fireEvent.click(screen.getByText('Testar chave'))
+    expect(await screen.findByText('Chave funcionando.')).toBeInTheDocument()
   })
 })
