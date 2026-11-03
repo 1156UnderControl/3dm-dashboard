@@ -3,17 +3,18 @@ import { z } from 'zod'
 import { useCurrentMember } from '../../auth/context'
 import { clearKey, getKey, keyHint, resolveKey, setKey, setTeamKey, useTeamKeys, type ProviderId } from '../../ai/keys'
 import { AiError, aiErrorMessage, aiErrorText, getProviderWithKey } from '../../ai/provider'
-import { DEFAULT_MODELS, setAppConfig, useAppConfig } from '../../data/config'
+import { DEFAULT_MODELS, MODEL_OPTIONS, setAppConfig, useAppConfig } from '../../data/config'
 import { db } from '../../firebase'
 
 const PROVIDER_LABEL: Record<ProviderId, string> = { anthropic: 'Anthropic', openai: 'OpenAI' }
+const OTHER = '__other__'
 const pingSchema = z.object({ ok: z.boolean() })
 
 async function ping(provider: ProviderId, model: string, key: string | null): Promise<string> {
   if (!key) return aiErrorMessage('no-key')
   try {
     await getProviderWithKey({ aiProvider: provider, model }, key).generate({
-      system: 'Responda chamando a ferramenta com ok=true.',
+      system: 'Responda com ok=true.',
       content: [{ type: 'text', text: 'ping' }],
       schema: pingSchema, schemaName: 'ping', maxTokens: 1024,
     })
@@ -37,6 +38,9 @@ export default function AiSettings() {
   const [msg, setMsg] = useState('')
   const [teamMsg, setTeamMsg] = useState('')
   const p = config.aiProvider
+  const options = MODEL_OPTIONS[p]
+  // Show the free-text field when "Outro…" was picked or the saved model isn't in the list.
+  const custom = model !== null || !options.some((o) => o.id === config.model)
   const personal = getKey(p)
   const active = resolveKey(p, team)
   const by = user?.email ?? ''
@@ -59,9 +63,21 @@ export default function AiSettings() {
               </select>
             </label>
             <label className="text-sm">Modelo
-              <input className="ml-2 rounded border px-2 py-1 font-mono" value={model ?? config.model} onChange={(e) => setModel(e.target.value)}
-                onBlur={() => { if (model && model !== config.model) void changeConfig(p, model.trim()) }} />
+              <select className="ml-2 rounded border px-2 py-1" value={custom ? OTHER : config.model}
+                onChange={(e) => {
+                  if (e.target.value === OTHER) { setModel(config.model); return }
+                  setModel(null); void changeConfig(p, e.target.value)
+                }}>
+                {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                <option value={OTHER}>Outro…</option>
+              </select>
             </label>
+            {custom && (
+              <label className="text-sm">ID do modelo
+                <input className="ml-2 rounded border px-2 py-1 font-mono" value={model ?? config.model} onChange={(e) => setModel(e.target.value)}
+                  onBlur={() => { if (model?.trim() && model.trim() !== config.model) void changeConfig(p, model.trim()) }} />
+              </label>
+            )}
           </div>
         )}
         <p className="text-sm font-medium" data-testid="active-key">

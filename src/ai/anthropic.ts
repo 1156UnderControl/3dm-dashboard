@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { z } from 'zod'
+import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
 import { AiError, toAiError, type AiProvider, type AiRequest } from './provider'
 
 export class AnthropicProvider implements AiProvider {
@@ -9,8 +9,9 @@ export class AnthropicProvider implements AiProvider {
 
   async generate<T>(req: AiRequest<T>): Promise<T> {
     const client = new Anthropic({ apiKey: this.apiKey, dangerouslyAllowBrowser: true })
-    const { $schema: _omit, ...input_schema } = z.toJSONSchema(req.schema) as Record<string, unknown>
-    void _omit
+    // Structured outputs instead of a forced tool call: current models (Opus 5.5,
+    // Sonnet 5.5, Fable 5.1) reject tool_choice "tool"/"any" with a 400.
+    const format = zodOutputFormat(req.schema)
     const content = req.content.map((c) =>
       c.type === 'pdf'
         ? { type: 'document' as const, source: { type: 'base64' as const, media_type: 'application/pdf' as const, data: c.base64 } }
@@ -23,8 +24,7 @@ export class AnthropicProvider implements AiProvider {
         max_tokens: req.maxTokens ?? 16000,
         system: req.system,
         messages: [{ role: 'user', content }],
-        tools: [{ name: req.schemaName, description: `Return the result as ${req.schemaName}.`, input_schema: input_schema as { type: 'object' } }],
-        tool_choice: { type: 'tool', name: req.schemaName },
+        output_config: { format },
       })
     } catch (e) {
       throw toAiError(e)
@@ -32,9 +32,12 @@ export class AnthropicProvider implements AiProvider {
     if (res.stop_reason === 'max_tokens') {
       throw new AiError('invalid-output', 'Resposta truncada (max_tokens atingido). Tente com um trecho menor.')
     }
-    const block = res.content.find((b) => b.type === 'tool_use')
-    const parsed = req.schema.safeParse(block && block.type === 'tool_use' ? block.input : undefined)
-    if (!parsed.success) throw new AiError('invalid-output')
-    return parsed.data
+    if (res.stop_reason === 'refusal') throw new AiError('invalid-output', 'A IA recusou o pedido.')
+    const text = res.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('')
+    try {
+      return format.parse(text) as T
+    } catch {
+      throw new AiError('invalid-output')
+    }
   }
 }

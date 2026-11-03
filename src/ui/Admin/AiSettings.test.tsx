@@ -9,6 +9,7 @@ vi.mock('../../ai/keys', async (orig) => ({ ...(await orig<typeof import('../../
 vi.mock('../../ai/provider', async (orig) => ({ ...(await orig<typeof import('../../ai/provider')>()), getProviderWithKey: (...a: unknown[]) => h.withKey(...a) }))
 
 import AiSettings from './AiSettings'
+import { setAppConfig } from '../../data/config'
 
 const renderAs = (role: 'admin' | 'member') => render(
   <Ctx.Provider value={{ user: { email: 'a@b.c' } as never, member: { email: 'a@b.c', role }, loading: false }}><AiSettings /></Ctx.Provider>)
@@ -60,5 +61,22 @@ describe('AiSettings', () => {
     renderAs('member')
     fireEvent.click(screen.getByText('Testar chave'))
     expect(await screen.findByText('Chave funcionando.')).toBeInTheDocument()
+  })
+  test('admin picks a model from the dropdown, or types another via Outro…', () => {
+    renderAs('admin')
+    const select = screen.getByLabelText('Modelo') as HTMLSelectElement
+    expect(select.value).toBe('claude-sonnet-5-5')
+    expect(screen.queryByLabelText('ID do modelo')).toBeNull()
+    fireEvent.change(select, { target: { value: 'claude-opus-5-5' } })
+    expect(setAppConfig).toHaveBeenCalledWith({}, { aiProvider: 'anthropic', model: 'claude-opus-5-5' })
+    fireEvent.change(select, { target: { value: '__other__' } })
+    const input = screen.getByLabelText('ID do modelo')
+    fireEvent.change(input, { target: { value: 'claude-custom-x' } })
+    fireEvent.blur(input)
+    expect(setAppConfig).toHaveBeenLastCalledWith({}, { aiProvider: 'anthropic', model: 'claude-custom-x' })
+  })
+  test('members do not see the model picker', () => {
+    renderAs('member')
+    expect(screen.queryByLabelText('Modelo')).toBeNull()
   })
 })
