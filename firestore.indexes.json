@@ -1,0 +1,8 @@
+{
+  "indexes": [
+    { "collectionGroup": "history", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "stepId", "order": "ASCENDING" }, { "fieldPath": "at", "order": "DESCENDING" }] },
+    { "collectionGroup": "history", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "itemId", "order": "ASCENDING" }, { "fieldPath": "at", "order": "DESCENDING" }] },
+    { "collectionGroup": "history", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "stepId", "order": "ASCENDING" }, { "fieldPath": "itemId", "order": "ASCENDING" }, { "fieldPath": "at", "order": "DESCENDING" }] }
+  ],
+  "fieldOverrides": []
+}
