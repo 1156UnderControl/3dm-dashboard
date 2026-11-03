@@ -1,1 +1,5 @@
-{ "projects": { "default": "demo-3dm" } }
+{
+  "projects": {
+    "default": "dm-1156"
+  }
+}
